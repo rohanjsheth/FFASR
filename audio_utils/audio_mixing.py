@@ -67,15 +67,14 @@ def convolve(audio, rir, distance, sr):
     return fftconvolve(audio, rir, mode="full")
 
 
-def loop_to_length(audio, target_length):
+def loop_to_length(audio, target_length, offset_ms, sr):
+    offset = round(offset_ms * sr / 1000)
+
     if len(audio) == 0:
         raise ValueError("Cannot loop empty audio")
 
-    if len(audio) > target_length:
-        return audio[:target_length]
-
-    repeats = int(np.ceil(target_length / len(audio)))
-    return np.tile(audio, repeats)[:target_length]
+    repeats = int(np.ceil((offset + target_length) / len(audio)))
+    return np.tile(audio, repeats)[offset:offset+target_length]
 
 
 def rms(audio):
@@ -111,7 +110,7 @@ def active_speech_mask(speech, sr=16000, frame_ms=25, threshold=0.01):
 def signal_power(signal, mask):
     """Return mean-square power over masked samples."""
     if not np.any(mask):
-        raise ValueError("Activity mask contains no active samples")
+        print("Activity mask contains no active samples")
 
     return np.mean(signal[mask] ** 2)
 
@@ -132,11 +131,13 @@ def noise_gain_for_snr(speech, noise, target_snr_db, mask):
 
 def prevent_clipping(mixture, speech, noise, max_peak=0.99):
     peak = np.max(np.abs(mixture))
+    scale = 1.0
 
-    if peak > max_peak:
+    over = peak > max_peak
+    if over:
         scale = max_peak / peak
         mixture *= scale
         speech *= scale
         noise *= scale
 
-    return mixture, speech, noise
+    return mixture, speech, noise, scale, over
