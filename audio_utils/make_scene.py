@@ -26,9 +26,11 @@ def make_scene(
             f"{num_noises}, {num_rirs}, {num_distances}, and {num_offsets}"
         )
 
+    speech_drr_db = float(am.drr_db(speech_rir, sr, speech_distance))
     room_speech = am.convolve(speech, speech_rir, speech_distance, sr)
 
     room_noises = []
+    noise_drrs_db = []
 
     for stem, rir, distance, offset_ms in zip(
         noise_stems,
@@ -36,6 +38,7 @@ def make_scene(
         noise_distances,
         noise_offsets_ms,
     ):
+        noise_drrs_db.append(float(am.drr_db(rir, sr, distance)))
         stem = am.normalize_rms(stem)
         warmup = len(rir) - 1
         resized_noise = am.loop_to_length(
@@ -69,6 +72,8 @@ def make_scene(
     return final_mix, {
         "target_snr_db": target_snr_db,
         "final_snr_db": final_snr_db,
+        "speech_drr_db": speech_drr_db,
+        "noise_drrs_db": noise_drrs_db,
         "clipping_scale": scale,
         "clipped": clipped,
         "offsets": noise_offsets_ms
