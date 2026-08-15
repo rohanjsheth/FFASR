@@ -14,3 +14,7 @@ wheels/
 
 #vscode
 .vscode
+
+#audio samples
+sample_audios/
+sample_plots/
