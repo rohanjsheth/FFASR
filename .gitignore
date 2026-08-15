@@ -11,3 +11,6 @@ wheels/
 
 #hugging_face caches
 .hf*
+
+#vscode
+.vscode
