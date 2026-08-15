@@ -7,13 +7,20 @@ from scipy.signal import resample_poly, spectrogram
 import matplotlib.pyplot as plt
 import numpy as np
 import io, soundfile as sf
-from audio_utils.audio_mixing import FloatArray
+from audio_utils.audio_types import FloatArray, Speech, Noise, SceneConfig
 from audio_utils.make_scene import make_scene
 
-sr = 16000
-pink_db = 20.0
-rng_seed = 0
 
+rng_seed = 0
+noise_offsets_ms = [0.0, 500.0]
+
+scene_config = SceneConfig(
+    sr = 16000,
+    pink_db = 20.0,
+    target_snr_db=10.0
+)
+
+sr = scene_config.sr
 
 def read_audio(audio_record: dict[str, Any] | str) -> tuple[FloatArray, int]:
     """Read either embedded audio bytes or a local/remote audio path."""
@@ -75,12 +82,25 @@ speech = resample(speech, speech_sr)
 rirs = [resample(waveform, input_sr) for waveform, input_sr in rir_audio]
 noises = [resample(waveform, input_sr) for waveform, input_sr in noise_audio]
 
-speech_rir = rirs[0]
-noise_rirs = rirs[1:]
-speech_distance = float(rir_records[0]["Direct Path Length [m]"])
-noise_distances = [
-    float(record["Direct Path Length [m]"])
-    for record in rir_records[1:]
+speech_source = Speech(
+    stem=speech,
+    rir=rirs[0],
+    distance=float(rir_records[0]["Direct Path Length [m]"])
+)
+
+noise_sources = [
+    Noise(
+        stem=stem,
+        rir=rir,
+        distance=float(record["Direct Path Length [m]"]),
+        offset_ms=offset_ms
+    ) for stem, rir, record, offset_ms in zip(
+        noises,
+        rirs[1:],
+        rir_records[1:],
+        noise_offsets_ms,
+        strict=True
+    )
 ]
 
 rng = np.random.default_rng(rng_seed)
@@ -88,18 +108,11 @@ rng = np.random.default_rng(rng_seed)
 print("Simulating...")
 
 rev, metadata = make_scene(
-    speech=speech,
-    noise_stems=noises,
-    speech_rir=speech_rir,
-    speech_distance=speech_distance,
-    noise_rirs=noise_rirs,
-    noise_distances=noise_distances,
-    noise_offsets_ms=[0.0, 500.0],
-    pink_db=pink_db,
+    speech=speech_source,
+    noises=noise_sources,
+    config=scene_config,
     rng=rng,
     rng_seed=rng_seed,
-    sr=sr,
-    target_snr_db=-10.0,
 )
 print("Metadata:", metadata)
 
