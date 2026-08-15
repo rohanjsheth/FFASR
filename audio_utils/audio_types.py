@@ -27,6 +27,7 @@ class Noise:
     distance: float
     offset_ms: float = 0.0
 
+
 @dataclass(frozen=True, slots=True, eq=False)
 class SceneConfig:
     sr: int

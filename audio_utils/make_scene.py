@@ -75,9 +75,9 @@ def make_scene(
         "final_snr_db": float(final_snr_db),
         "speech_drr_db": float(speech_drr_db),
         "noises": [
-                    {"drr_db": float(drr), "offset_ms": float(noise.offset_ms)}
-                    for drr, noise in zip(noise_drrs_db, noises)
-                    ],
+            {"drr_db": float(drr), "offset_ms": float(noise.offset_ms)}
+            for drr, noise in zip(noise_drrs_db, noises)
+        ],
         "clipping_scale": float(scale),
         "clipped": bool(clipped),
     }

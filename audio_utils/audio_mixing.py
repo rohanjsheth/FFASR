@@ -60,12 +60,10 @@ def drr_db(
     direct_end = min(len(rir), direct_idx + half_window_samples + 1)
 
     direct_energy = float(np.sum(rir[direct_start:direct_end] ** 2))
-    total_energy = float(np.sum(rir ** 2))
+    total_energy = float(np.sum(rir**2))
     reverberant_energy = max(total_energy - direct_energy, 0.0)
 
-    return 10 * np.log10(
-        (direct_energy + EPS) / (reverberant_energy + EPS)
-    )
+    return 10 * np.log10((direct_energy + EPS) / (reverberant_energy + EPS))
 
 
 def trim_rir(
@@ -103,11 +101,11 @@ def loop_to_length(
         raise ValueError("Cannot loop empty audio")
 
     repeats = int(np.ceil((offset + target_length) / len(audio)))
-    return np.tile(audio, repeats)[offset:offset+target_length]
+    return np.tile(audio, repeats)[offset : offset + target_length]
 
 
 def rms(audio: FloatArray) -> float:
-    return np.sqrt(np.mean(audio ** 2))
+    return np.sqrt(np.mean(audio**2))
 
 
 def normalize_rms(audio: FloatArray) -> FloatArray:
@@ -128,15 +126,15 @@ def active_speech_mask(
     starts = list(range(0, len(speech), frame_len))
 
     for start in starts:
-        frame = speech[start:start + frame_len]
-        energies.append(np.mean(frame ** 2))
+        frame = speech[start : start + frame_len]
+        energies.append(np.mean(frame**2))
 
     peak = max(energies) + EPS
     cutoff = threshold * peak
 
     for start, energy in zip(starts, energies):
         if energy >= cutoff:
-            mask[start:start + frame_len] = True
+            mask[start : start + frame_len] = True
 
     return mask
 

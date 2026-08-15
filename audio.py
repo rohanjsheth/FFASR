@@ -14,13 +14,10 @@ from audio_utils.make_scene import make_scene
 rng_seed = 0
 noise_offsets_ms = [0.0, 500.0]
 
-scene_config = SceneConfig(
-    sr = 16000,
-    pink_db = 20.0,
-    target_snr_db=10.0
-)
+scene_config = SceneConfig(sr=16000, pink_db=20.0, target_snr_db=10.0)
 
 sr = scene_config.sr
+
 
 def read_audio(audio_record: dict[str, Any] | str) -> tuple[FloatArray, int]:
     """Read either embedded audio bytes or a local/remote audio path."""
@@ -58,13 +55,21 @@ def take_records(
 
 print("Loading files...")
 # 1. Load one LibriSpeech sample
-speech_ds = load_dataset("openslr/librispeech_asr", "clean", split="test", cache_dir="./.hf_cache", streaming=True)
+speech_ds = load_dataset(
+    "openslr/librispeech_asr",
+    "clean",
+    split="test",
+    cache_dir="./.hf_cache",
+    streaming=True,
+)
 speech_ds = speech_ds.cast_column("audio", Audio(decode=False))
 speech_rec = take_records(speech_ds, 1)[0]
 speech, speech_sr = read_audio(speech_rec["audio"])
 
 # 2. Load one speech RIR and two noise RIRs
-rir_ds = load_dataset("treble-technologies/Treble10-RIR", split="rir_mono", streaming=True)
+rir_ds = load_dataset(
+    "treble-technologies/Treble10-RIR", split="rir_mono", streaming=True
+)
 rir_ds = rir_ds.cast_column("audio", Audio(decode=False))
 rir_records = take_records(rir_ds, 3)
 rir_audio = [read_audio(record["audio"]) for record in rir_records]
@@ -83,9 +88,7 @@ rirs = [resample(waveform, input_sr) for waveform, input_sr in rir_audio]
 noises = [resample(waveform, input_sr) for waveform, input_sr in noise_audio]
 
 speech_source = Speech(
-    stem=speech,
-    rir=rirs[0],
-    distance=float(rir_records[0]["Direct Path Length [m]"])
+    stem=speech, rir=rirs[0], distance=float(rir_records[0]["Direct Path Length [m]"])
 )
 
 noise_sources = [
@@ -93,13 +96,10 @@ noise_sources = [
         stem=stem,
         rir=rir,
         distance=float(record["Direct Path Length [m]"]),
-        offset_ms=offset_ms
-    ) for stem, rir, record, offset_ms in zip(
-        noises,
-        rirs[1:],
-        rir_records[1:],
-        noise_offsets_ms,
-        strict=True
+        offset_ms=offset_ms,
+    )
+    for stem, rir, record, offset_ms in zip(
+        noises, rirs[1:], rir_records[1:], noise_offsets_ms, strict=True
     )
 ]
 
@@ -119,7 +119,7 @@ print("Metadata:", metadata)
 print("Plot Generating...")
 f, t, Sxx = spectrogram(rev, fs=sr, nperseg=512, noverlap=256)
 plt.figure(figsize=(10, 4))
-plt.pcolormesh(t, f, 10*np.log10(Sxx+1e-12), shading="auto")
+plt.pcolormesh(t, f, 10 * np.log10(Sxx + 1e-12), shading="auto")
 plt.xlabel("Time [s]")
 plt.ylabel("Frequency [Hz]")
 plt.title("Spectrogram of Simulated Noisy Reverberant Speech")
