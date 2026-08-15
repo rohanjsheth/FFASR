@@ -15,7 +15,6 @@
 # - Anti-clipping is applied as one shared gain to mixture, speech, and noise so SNR
 #   is preserved.
 
-import warnings
 
 import numpy as np
 from scipy.signal import fftconvolve
@@ -142,8 +141,7 @@ def active_speech_mask(
 def signal_power(signal: FloatArray, mask: BoolArray) -> float:
     """Return mean-square power over masked samples."""
     if not np.any(mask):
-        pass
-        warnings.warn("No masked audio in speech")
+        raise ValueError("Activity mask selects no samples")
 
     return float(np.mean(signal[mask] ** 2))
 
