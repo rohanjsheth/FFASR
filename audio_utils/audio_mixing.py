@@ -15,14 +15,28 @@
 # - Anti-clipping is applied as one shared gain to mixture, speech, and noise so SNR
 #   is preserved.
 
+from typing import Any
+
 import numpy as np
+import numpy.typing as npt
 from scipy.signal import fftconvolve
+
+FloatArray = npt.NDArray[np.floating[Any]]
+BoolArray = npt.NDArray[np.bool_]
+# Reductions over a FloatArray keep the input's precision, so scalar results are
+# `np.floating`, not a fixed width and not a builtin `float`.
+FloatScalar = np.floating[Any]
 
 EPS = 1e-12
 c = 343
 
 
-def direct_index(rir, distance, sr, window_ms=1.0):
+def direct_index(
+    rir: FloatArray,
+    distance: float,
+    sr: int,
+    window_ms: float = 1.0,
+) -> int:
     """Find the direct arrival near the physically expected sample."""
     expected_idx = round(distance / c * sr)
     window_samples = round(sr * window_ms / 1000)
@@ -36,7 +50,12 @@ def direct_index(rir, distance, sr, window_ms=1.0):
     return int(np.argmax(np.abs(rir[start:end]))) + start
 
 
-def drr_db(rir, sr, distance, half_window_ms=1.25):
+def drr_db(
+    rir: FloatArray,
+    sr: int,
+    distance: float,
+    half_window_ms: float = 1.25,
+) -> np.float64:
     """Compute DRR using a 2.5 ms total window around the direct arrival."""
     direct_idx = direct_index(rir, distance, sr)
 
@@ -54,7 +73,12 @@ def drr_db(rir, sr, distance, half_window_ms=1.25):
     )
 
 
-def trim_rir(rir, distance, sr, pre_ms=1.0):
+def trim_rir(
+    rir: FloatArray,
+    distance: float,
+    sr: int,
+    pre_ms: float = 1.0,
+) -> FloatArray:
     direct_idx = direct_index(rir, distance, sr)
     lead_samples = round(sr * pre_ms / 1000)
 
@@ -62,12 +86,22 @@ def trim_rir(rir, distance, sr, pre_ms=1.0):
     return rir[start:]
 
 
-def convolve(audio, rir, distance, sr):
+def convolve(
+    audio: FloatArray,
+    rir: FloatArray,
+    distance: float,
+    sr: int,
+) -> FloatArray:
     rir = trim_rir(rir, distance, sr)
     return fftconvolve(audio, rir, mode="full")
 
 
-def loop_to_length(audio, target_length, offset_ms, sr):
+def loop_to_length(
+    audio: FloatArray,
+    target_length: int,
+    offset_ms: float,
+    sr: int,
+) -> FloatArray:
     offset = round(offset_ms * sr / 1000)
 
     if len(audio) == 0:
@@ -77,15 +111,20 @@ def loop_to_length(audio, target_length, offset_ms, sr):
     return np.tile(audio, repeats)[offset:offset+target_length]
 
 
-def rms(audio):
+def rms(audio: FloatArray) -> FloatScalar:
     return np.sqrt(np.mean(audio ** 2))
 
 
-def normalize_rms(audio):
+def normalize_rms(audio: FloatArray) -> FloatArray:
     return audio / (rms(audio) + EPS)
 
 
-def active_speech_mask(speech, sr=16000, frame_ms=25, threshold=0.01):
+def active_speech_mask(
+    speech: FloatArray,
+    sr: int = 16000,
+    frame_ms: float = 25,
+    threshold: float = 0.01,
+) -> BoolArray:
     frame_len = int(sr * frame_ms / 1000)
 
     mask = np.zeros(len(speech), dtype=bool)
@@ -107,7 +146,7 @@ def active_speech_mask(speech, sr=16000, frame_ms=25, threshold=0.01):
     return mask
 
 
-def signal_power(signal, mask):
+def signal_power(signal: FloatArray, mask: BoolArray) -> FloatScalar:
     """Return mean-square power over masked samples."""
     if not np.any(mask):
         print("Activity mask contains no active samples")
@@ -115,21 +154,34 @@ def signal_power(signal, mask):
     return np.mean(signal[mask] ** 2)
 
 
-def measure_snr_db(speech, noise, mask):
+def measure_snr_db(
+    speech: FloatArray,
+    noise: FloatArray,
+    mask: BoolArray,
+) -> FloatScalar:
     p_speech = signal_power(speech, mask)
     p_noise = signal_power(noise, mask) + EPS
 
     return 10 * np.log10(p_speech / p_noise)
 
 
-def noise_gain_for_snr(speech, noise, target_snr_db, mask):
+def noise_gain_for_snr(
+    speech: FloatArray,
+    noise: FloatArray,
+    target_snr_db: float,
+    mask: BoolArray,
+) -> FloatScalar:
     snr_diff_db = measure_snr_db(speech, noise, mask) - target_snr_db
 
     # snr_diff_db = 20 * log10(g)
     return 10 ** (snr_diff_db / 20)
 
 
-def pink_noise(n, rng, dtype=np.float32):
+def pink_noise(
+    n: int,
+    rng: np.random.Generator,
+    dtype: npt.DTypeLike = np.float32,
+) -> FloatArray:
     """Generate unit-standard-deviation pink noise from a caller-owned RNG."""
     X = rng.standard_normal(n // 2 + 1) + 1j * rng.standard_normal(n // 2 + 1)
     f = np.fft.rfftfreq(n)
@@ -140,9 +192,14 @@ def pink_noise(n, rng, dtype=np.float32):
     return (x / (x.std() + 1e-12)).astype(dtype)
 
 
-def prevent_clipping(mixture, speech, noise, max_peak=0.99):
+def prevent_clipping(
+    mixture: FloatArray,
+    speech: FloatArray,
+    noise: FloatArray,
+    max_peak: float = 0.99,
+) -> tuple[FloatArray, FloatArray, FloatArray, FloatScalar, np.bool_]:
     peak = np.max(np.abs(mixture))
-    scale = 1.0
+    scale: FloatScalar = np.float64(1.0)
 
     over = peak > max_peak
     if over:

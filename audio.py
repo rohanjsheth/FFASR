@@ -1,9 +1,13 @@
+from collections.abc import Iterable
+from typing import Any
+
 from datasets import Audio, Value, load_dataset
 from datasets.utils.file_utils import xopen
 from scipy.signal import resample_poly, spectrogram
 import matplotlib.pyplot as plt
 import numpy as np
 import io, soundfile as sf
+from audio_utils.audio_mixing import FloatArray
 from audio_utils.make_scene import make_scene
 
 sr = 16000
@@ -11,7 +15,7 @@ pink_db = 20.0
 rng_seed = 0
 
 
-def read_audio(audio_record):
+def read_audio(audio_record: dict[str, Any] | str) -> tuple[FloatArray, int]:
     """Read either embedded audio bytes or a local/remote audio path."""
     if isinstance(audio_record, dict) and audio_record.get("bytes") is not None:
         return sf.read(io.BytesIO(audio_record["bytes"]), dtype="float64")
@@ -24,14 +28,17 @@ def read_audio(audio_record):
         return sf.read(audio_file, dtype="float64")
 
 
-def resample(audio, input_sr):
+def resample(audio: FloatArray, input_sr: int) -> FloatArray:
     """Resample one waveform to the scene sample rate."""
     if input_sr == sr:
         return audio
     return resample_poly(audio, sr, input_sr)
 
 
-def take_records(dataset, count):
+def take_records(
+    dataset: Iterable[dict[str, Any]],
+    count: int,
+) -> list[dict[str, Any]]:
     """Take records from a streaming dataset and close its iterator promptly."""
     iterator = iter(dataset)
     try:

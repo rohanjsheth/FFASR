@@ -1,21 +1,25 @@
+from collections.abc import Sequence
+from typing import Any
+
 from . import audio_mixing as am
+from .audio_mixing import FloatArray
 import numpy as np
 
 
 def make_scene(
-    speech,
-    noise_stems,
-    speech_rir,
-    speech_distance,
-    noise_rirs,
-    noise_distances,
-    noise_offsets_ms,
-    pink_db,
-    rng,
-    rng_seed,
-    sr,
-    target_snr_db,
-):
+    speech: FloatArray,
+    noise_stems: Sequence[FloatArray],
+    speech_rir: FloatArray,
+    speech_distance: float,
+    noise_rirs: Sequence[FloatArray],
+    noise_distances: Sequence[float],
+    noise_offsets_ms: Sequence[float],
+    pink_db: float,
+    rng: np.random.Generator,
+    rng_seed: int,
+    sr: int,
+    target_snr_db: float,
+) -> tuple[FloatArray, dict[str, Any]]:
     num_noises = len(noise_stems)
     num_rirs = len(noise_rirs)
     num_distances = len(noise_distances)
@@ -31,7 +35,7 @@ def make_scene(
             f"{num_noises}, {num_rirs}, {num_distances}, and {num_offsets}"
         )
 
-    speech_drr_db = float(am.drr_db(speech_rir, sr, speech_distance))
+    speech_drr_db = am.drr_db(speech_rir, sr, speech_distance)
     room_speech = am.convolve(speech, speech_rir, speech_distance, sr)
 
     room_noises = []
@@ -43,7 +47,7 @@ def make_scene(
         noise_distances,
         noise_offsets_ms,
     ):
-        noise_drrs_db.append(float(am.drr_db(rir, sr, distance)))
+        noise_drrs_db.append(am.drr_db(rir, sr, distance))
         stem = am.normalize_rms(stem)
         warmup = len(rir) - 1
         resized_noise = am.loop_to_length(
@@ -88,12 +92,12 @@ def make_scene(
 
     return final_mix, {
         "target_snr_db": target_snr_db,
-        "final_snr_db": final_snr_db,
+        "final_snr_db": float(final_snr_db),
         "pink_db": pink_db,
         "rng_seed": rng_seed,
-        "speech_drr_db": speech_drr_db,
-        "noise_drrs_db": noise_drrs_db,
-        "clipping_scale": scale,
-        "clipped": clipped,
+        "speech_drr_db": float(speech_drr_db),
+        "noise_drrs_db": [float(drr) for drr in noise_drrs_db],
+        "clipping_scale": float(scale),
+        "clipped": bool(clipped),
         "offsets": noise_offsets_ms,
     }
