@@ -129,6 +129,17 @@ def noise_gain_for_snr(speech, noise, target_snr_db, mask):
     return 10 ** (snr_diff_db / 20)
 
 
+def pink_noise(n, rng, dtype=np.float32):
+    """Generate unit-standard-deviation pink noise from a caller-owned RNG."""
+    X = rng.standard_normal(n // 2 + 1) + 1j * rng.standard_normal(n // 2 + 1)
+    f = np.fft.rfftfreq(n)
+    f[0] = f[1]
+    X /= np.sqrt(f)
+    X[0] = 0.0
+    x = np.fft.irfft(X, n=n)
+    return (x / (x.std() + 1e-12)).astype(dtype)
+
+
 def prevent_clipping(mixture, speech, noise, max_peak=0.99):
     peak = np.max(np.abs(mixture))
     scale = 1.0

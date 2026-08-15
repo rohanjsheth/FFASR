@@ -1,12 +1,14 @@
 from datasets import Audio, Value, load_dataset
 from datasets.utils.file_utils import xopen
-from scipy.signal import fftconvolve, resample_poly, spectrogram
+from scipy.signal import resample_poly, spectrogram
 import matplotlib.pyplot as plt
 import numpy as np
 import io, soundfile as sf
 from audio_utils.make_scene import make_scene
 
 sr = 16000
+pink_db = 20.0
+rng_seed = 0
 
 
 def read_audio(audio_record):
@@ -21,55 +23,91 @@ def read_audio(audio_record):
     with xopen(path, "rb") as audio_file:
         return sf.read(audio_file, dtype="float64")
 
+
+def resample(audio, input_sr):
+    """Resample one waveform to the scene sample rate."""
+    if input_sr == sr:
+        return audio
+    return resample_poly(audio, sr, input_sr)
+
+
+def take_records(dataset, count):
+    """Take records from a streaming dataset and close its iterator promptly."""
+    iterator = iter(dataset)
+    try:
+        return [next(iterator) for _ in range(count)]
+    finally:
+        close = getattr(iterator, "close", None)
+        if close is not None:
+            close()
+
+
 print("Loading files...")
 # 1. Load one LibriSpeech sample
 speech_ds = load_dataset("openslr/librispeech_asr", "clean", split="test", cache_dir="./.hf_cache", streaming=True)
 speech_ds = speech_ds.cast_column("audio", Audio(decode=False))
-speech_rec = next(iter(speech_ds))
+speech_rec = take_records(speech_ds, 1)[0]
 speech, speech_sr = read_audio(speech_rec["audio"])
 
-# 2. Load one Treble10 RIR
+# 2. Load one speech RIR and two noise RIRs
 rir_ds = load_dataset("treble-technologies/Treble10-RIR", split="rir_mono", streaming=True)
 rir_ds = rir_ds.cast_column("audio", Audio(decode=False))
-rir_rec = next(iter(rir_ds))
-rir, rir_sr = read_audio(rir_rec["audio"])
+rir_records = take_records(rir_ds, 3)
+rir_audio = [read_audio(record["audio"]) for record in rir_records]
 
-# 3. Load one Noise
+# 3. Load two noise clips
 noise_ds = load_dataset("bilguun/musan-noise", split="train", streaming=True)
 # SoundFolder yields paths. Keeping this as a string avoids Audio.encode_example,
 # which imports TorchCodec even when decoding is disabled.
 noise_ds = noise_ds.cast_column("audio", Value("string"))
-noise_rec = next(iter(noise_ds))
-noise, noise_sr = read_audio(noise_rec["audio"])
+noise_records = take_records(noise_ds, 2)
+noise_audio = [read_audio(record["audio"]) for record in noise_records]
 
 print("Downsampling...")
-# 3. Downsample
-if rir_sr != sr:
-    rir = resample_poly(rir, sr, rir_sr)
+speech = resample(speech, speech_sr)
+rirs = [resample(waveform, input_sr) for waveform, input_sr in rir_audio]
+noises = [resample(waveform, input_sr) for waveform, input_sr in noise_audio]
 
-if noise_sr != sr:
-    noise = resample_poly(noise, sr, noise_sr)
+speech_rir = rirs[0]
+noise_rirs = rirs[1:]
+speech_distance = float(rir_records[0]["Direct Path Length [m]"])
+noise_distances = [
+    float(record["Direct Path Length [m]"])
+    for record in rir_records[1:]
+]
 
-if speech_sr != sr:
-    speech = resample_poly(speech, sr, speech_sr)
+rng = np.random.default_rng(rng_seed)
 
 print("Simulating...")
-rir_distance = float(rir_rec["Direct Path Length [m]"])
-rev, metadata = make_scene(speech, noise, rir, rir_distance, rir, rir_distance, sr, 10.0)
+
+rev, metadata = make_scene(
+    speech=speech,
+    noise_stems=noises,
+    speech_rir=speech_rir,
+    speech_distance=speech_distance,
+    noise_rirs=noise_rirs,
+    noise_distances=noise_distances,
+    noise_offsets_ms=[0.0, 500.0],
+    pink_db=pink_db,
+    rng=rng,
+    rng_seed=rng_seed,
+    sr=sr,
+    target_snr_db=-10.0,
+)
+print("Metadata:", metadata)
 
 print("Plot Generating...")
 f, t, Sxx = spectrogram(rev, fs=sr, nperseg=512, noverlap=256)
+plt.figure(figsize=(10, 4))
 plt.pcolormesh(t, f, 10*np.log10(Sxx+1e-12), shading="auto")
 plt.xlabel("Time [s]")
 plt.ylabel("Frequency [Hz]")
-plt.title("Spectrogram of Reverberated Speech")
+plt.title("Spectrogram of Simulated Noisy Reverberant Speech")
+plt.colorbar(label="Power [dB]")
 plt.tight_layout()
 plt.show()
 
-# 6. Save
+# 4. Save the mixture and diagnostic inputs
 print("Saving...")
 sf.write("audio_reverb.wav", rev, sr, subtype="FLOAT")
-sf.write("speech.wav", speech, sr, subtype="FLOAT")
-sf.write("noise.wav", noise, sr, subtype="FLOAT")
-sf.write("rir.wav", rir, sr, subtype="FLOAT")
-print("✅ Saved: audio_reverb.wav, speech.wav, noise.wav, rir.wav")
+print("Saved: audio_reverb.wav")
