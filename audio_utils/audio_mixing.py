@@ -170,7 +170,6 @@ def noise_gain_for_snr(
 
 
 def pink_noise(n: int, rng: np.random.Generator) -> FloatArray:
-    """Generate unit-standard-deviation pink noise from a caller-owned RNG."""
     X = rng.standard_normal(n // 2 + 1) + 1j * rng.standard_normal(n // 2 + 1)
     f = np.fft.rfftfreq(n)
     f[0] = f[1]
