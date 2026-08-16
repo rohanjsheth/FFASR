@@ -143,9 +143,9 @@ with (
         plt.title("Spectrogram of Simulated Noisy Reverberant Speech")
         plt.colorbar(label="Power [dB]")
         plt.tight_layout()
-        plt.savefig(f"./sample_plots/{i}_audio_reverb.png")
+        plt.savefig(f"../sample_plots/{i}_audio_reverb.png")
 
         # Save the mixture alongside its spectrogram.
         print("Saving...")
-        sf.write(f"./sample_audios/{i}_audio_reverb.wav", rev, sr, subtype="FLOAT")
-        print(f"Saved: ./sample_audios/{i}_audio_reverb.wav")
+        sf.write(f"../sample_audios/{i}_audio_reverb.wav", rev, sr, subtype="FLOAT")
+        print(f"Saved: ../sample_audios/{i}_audio_reverb.wav")
