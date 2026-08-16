@@ -9,6 +9,7 @@ description = "Synthetic far-field ASR scene generation and data preparation"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "accelerate>=1.12,<2",
     "datasets>=5.0,<6",
     "matplotlib>=3.10,<4",
     "numpy>=2.0,<3",

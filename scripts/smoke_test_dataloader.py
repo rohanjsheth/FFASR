@@ -36,6 +36,33 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--cache-dir", type=Path, default=Path(".hf_cache"))
+    parser.add_argument(
+        "--with-model",
+        action="store_true",
+        help="Also download Qwen weights and run a CUDA forward-loss check.",
+    )
+    parser.add_argument(
+        "--train-steps",
+        type=int,
+        default=0,
+        help=(
+            "Run this many optimizer steps on one fixed example after the model "
+            "forward check; values greater than zero imply --with-model."
+        ),
+    )
+    parser.add_argument(
+        "--training-example",
+        choices=("clean", "simulated"),
+        default="clean",
+        help="Fixed example used by --train-steps.",
+    )
+    parser.add_argument("--learning-rate", type=float, default=1e-5)
+    parser.add_argument("--max-grad-norm", type=float, default=1.0)
+    parser.add_argument(
+        "--gradient-checkpointing",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
     return parser.parse_args(argv)
 
 
@@ -156,6 +183,181 @@ def validate_batch(batch: Any, batch_size: int) -> None:
     print(f"  supervised tokens per example: {supervised_tokens.tolist()}")
 
 
+def print_supervised_labels(processor: Any, batch: Any) -> None:
+    """Decode the unmasked labels so the intended training targets are visible."""
+    print("Decoded non-masked labels:")
+    for index, labels in enumerate(batch["labels"]):
+        token_ids = labels[labels != -100].tolist()
+        decoded = processor.tokenizer.decode(token_ids, skip_special_tokens=False)
+        print(f"  example {index}: {decoded!r}")
+
+
+def move_batch_to_device(batch: Any, device: Any) -> dict[str, Any]:
+    """Move every processor tensor to one accelerator without changing its dtype."""
+    return {key: value.to(device) for key, value in batch.items()}
+
+
+def configure_trainable_modules(model: Any) -> list[Any]:
+    """Freeze Qwen's language side and train only the audio tower and projector."""
+    model.requires_grad_(False)
+    model.model.audio_tower.requires_grad_(True)
+    model.model.multi_modal_projector.requires_grad_(True)
+
+    trainable = [parameter for parameter in model.parameters() if parameter.requires_grad]
+    trainable_count = sum(parameter.numel() for parameter in trainable)
+    total_count = sum(parameter.numel() for parameter in model.parameters())
+    print(
+        f"Trainable parameters: {trainable_count:,} / {total_count:,} "
+        f"({100 * trainable_count / total_count:.2f}%)"
+    )
+    return trainable
+
+
+def validate_first_step_gradients(model: Any, trainable: list[Any]) -> float:
+    """Verify gradient flow reaches only the selected trainable modules."""
+    import torch
+
+    if not any(parameter.grad is not None for parameter in model.model.audio_tower.parameters()):
+        raise RuntimeError("No gradients reached the audio tower")
+    if not any(
+        parameter.grad is not None
+        for parameter in model.model.multi_modal_projector.parameters()
+    ):
+        raise RuntimeError("No gradients reached the multimodal projector")
+
+    unexpected = [
+        name
+        for name, parameter in model.named_parameters()
+        if not parameter.requires_grad and parameter.grad is not None
+    ]
+    if unexpected:
+        raise RuntimeError(f"Frozen parameters received gradients: {unexpected[:5]}")
+
+    grad_norm = torch.nn.utils.clip_grad_norm_(
+        trainable,
+        max_norm=float("inf"),
+        error_if_nonfinite=True,
+    )
+    grad_norm_value = float(grad_norm.detach())
+    if grad_norm_value == 0.0:
+        raise RuntimeError("Trainable gradient norm is zero")
+    return grad_norm_value
+
+
+def run_model_checks(
+    args: argparse.Namespace,
+    processor_batch: Any,
+    collator: Any,
+    clean_scene: RenderedScene,
+    simulated_scene: RenderedScene,
+) -> None:
+    """Run the full-model forward gate and optional fixed-example training steps."""
+    import torch
+    from transformers import Qwen3ASRForConditionalGeneration
+
+    if not torch.cuda.is_available():
+        raise RuntimeError("--with-model requires a CUDA GPU")
+
+    torch.manual_seed(args.seed)
+    torch.cuda.manual_seed_all(args.seed)
+
+    device = torch.device("cuda")
+    device_index = torch.cuda.current_device()
+    properties = torch.cuda.get_device_properties(device_index)
+    model_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+    print(
+        f"CUDA device: {properties.name}, "
+        f"VRAM={properties.total_memory / 2**30:.1f} GiB, dtype={model_dtype}"
+    )
+
+    print(f"Loading model {args.model_id!r}...")
+    model = Qwen3ASRForConditionalGeneration.from_pretrained(
+        args.model_id,
+        cache_dir=str(args.cache_dir),
+        dtype=model_dtype,
+        low_cpu_mem_usage=True,
+    ).to(device)
+    trainable = configure_trainable_modules(model)
+
+    torch.cuda.empty_cache()
+    torch.cuda.reset_peak_memory_stats(device)
+    device_batch = move_batch_to_device(processor_batch, device)
+    model.eval()
+    with torch.inference_mode(), torch.autocast("cuda", dtype=model_dtype):
+        forward_loss = model(**device_batch, use_cache=False).loss
+    if forward_loss is None or not torch.isfinite(forward_loss):
+        raise RuntimeError(f"Model produced an invalid forward loss: {forward_loss}")
+    torch.cuda.synchronize(device)
+    print(f"Forward loss: {float(forward_loss):.6f}")
+    print(
+        f"Forward peak allocated VRAM: "
+        f"{torch.cuda.max_memory_allocated(device) / 2**30:.2f} GiB"
+    )
+    del device_batch, forward_loss
+    torch.cuda.empty_cache()
+
+    if args.train_steps == 0:
+        return
+
+    if args.gradient_checkpointing:
+        model.gradient_checkpointing_enable()
+
+    training_scene = clean_scene if args.training_example == "clean" else simulated_scene
+    training_batch = collator([training_scene])
+    validate_batch(training_batch, batch_size=1)
+    device_training_batch = move_batch_to_device(training_batch, device)
+
+    optimizer = torch.optim.AdamW(trainable, lr=args.learning_rate)
+    scaler = torch.amp.GradScaler("cuda", enabled=model_dtype == torch.float16)
+    tracked_parameter = next(model.model.multi_modal_projector.parameters())
+    tracked_before = tracked_parameter.detach().clone()
+    losses: list[float] = []
+
+    model.train()
+    torch.cuda.reset_peak_memory_stats(device)
+    for step in range(args.train_steps):
+        optimizer.zero_grad(set_to_none=True)
+        with torch.autocast("cuda", dtype=model_dtype):
+            loss = model(**device_training_batch, use_cache=False).loss
+        if loss is None or not torch.isfinite(loss):
+            raise RuntimeError(f"Step {step + 1} produced an invalid loss: {loss}")
+
+        scaler.scale(loss).backward()
+        scaler.unscale_(optimizer)
+
+        if step == 0:
+            grad_norm = validate_first_step_gradients(model, trainable)
+            print(f"First-step trainable gradient norm: {grad_norm:.6f}")
+
+        torch.nn.utils.clip_grad_norm_(
+            trainable,
+            max_norm=args.max_grad_norm,
+            error_if_nonfinite=True,
+        )
+        scaler.step(optimizer)
+        scaler.update()
+
+        loss_value = float(loss.detach())
+        losses.append(loss_value)
+        print(f"Training step {step + 1}/{args.train_steps}: loss={loss_value:.6f}")
+
+        if step == 0:
+            max_delta = float(
+                (tracked_parameter.detach() - tracked_before).abs().max().float()
+            )
+            if max_delta == 0.0:
+                raise RuntimeError("Optimizer step did not change the tracked projector parameter")
+            print(f"First-step projector max parameter delta: {max_delta:.8f}")
+
+    torch.cuda.synchronize(device)
+    print(
+        f"Training peak allocated VRAM: "
+        f"{torch.cuda.max_memory_allocated(device) / 2**30:.2f} GiB"
+    )
+    if len(losses) > 1:
+        print(f"Fixed-example loss: {losses[0]:.6f} -> {losses[-1]:.6f}")
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
 
@@ -165,6 +367,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         raise ValueError(
             "--max-rir-records must allow one speech RIR plus every noise RIR"
         )
+    if args.train_steps < 0:
+        raise ValueError("--train-steps cannot be negative")
+    if args.learning_rate <= 0:
+        raise ValueError("--learning-rate must be positive")
+    if args.max_grad_norm <= 0:
+        raise ValueError("--max-grad-norm must be positive")
+    if args.train_steps > 0:
+        args.with_model = True
 
     from datasets import Audio, Value, load_dataset
     from torch.utils.data import DataLoader
@@ -267,6 +477,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     batch = next(iter(loader))
     validate_batch(batch, batch_size=2)
+    print_supervised_labels(processor, batch)
+
+    if args.with_model:
+        run_model_checks(
+            args=args,
+            processor_batch=batch,
+            collator=collator,
+            clean_scene=clean_scene,
+            simulated_scene=simulated_scene,
+        )
 
     print("Smoke test passed.")
     return 0

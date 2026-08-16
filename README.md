@@ -41,6 +41,11 @@ processor without downloading the complete source datasets:
 uv run ffasr-smoke-test
 ```
 
+Pass `--with-model` to add a full-model forward-loss check, or use
+`--train-steps 1` to verify frozen-module gradients and one optimizer update on
+a CUDA machine. See the [Colab GPU runbook](docs/colab.md) for the complete
+hosted workflow.
+
 ## Simulation process
 
 ### Inputs and notation
