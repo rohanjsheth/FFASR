@@ -40,4 +40,4 @@ class SceneDataset(Dataset):
         return render_scene_from_recipe(recipe, self._speech_ds, self._noise_ds, self._rir_ds, self._sample_rate)
 
     def set_epoch(self, epoch: int):
-        self._epoch() = epoch
+        self._epoch = epoch
