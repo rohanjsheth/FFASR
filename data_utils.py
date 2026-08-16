@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypedDict
 
 from datasets import Dataset
 from datasets.utils.file_utils import xopen
@@ -12,6 +12,12 @@ from audio_utils.make_scene import make_scene
 
 
 RIRIndex = dict[str, dict[str, npt.NDArray[np.intp]]]
+
+
+class RenderedScene(TypedDict):
+    audio: FloatArray
+    text: str
+    metadata: dict[str, Any]
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,7 +138,7 @@ def render_scene_from_recipe(
     noise_ds: Dataset,
     rir_ds: Dataset,
     sr: int,
-) -> dict[str, Any]:
+) -> RenderedScene:
     speech_rec = speech_ds[recipe.speech_index]
     speech_rir_rec = rir_ds[recipe.speech_rir_index]
     noise_recs = [noise_ds[index] for index in recipe.noise_indices]

@@ -1,7 +1,11 @@
-from typing import Any
-
 from datasets import Dataset as HFDataset
-from data_utils import RIRIndex, get_groups, render_scene_from_recipe, sample_scene_recipe
+from data_utils import (
+    RIRIndex,
+    RenderedScene,
+    get_groups,
+    render_scene_from_recipe,
+    sample_scene_recipe,
+)
 from torch.utils.data import Dataset
 import numpy as np
 
@@ -28,10 +32,9 @@ class SceneDataset(Dataset):
     def __len__(self) -> int:
         return len(self._speech_ds)
 
-    def __getitem__(self, idx: int) -> dict[str, Any]:
+    def __getitem__(self, idx: int) -> RenderedScene:
         seed = np.random.SeedSequence([self._base_seed, self._epoch, idx])
         rng = np.random.default_rng(seed)
 
         recipe = sample_scene_recipe(idx, self._noise_ds, self._groups, rng, self._number_of_noises)
         return render_scene_from_recipe(recipe, self._speech_ds, self._noise_ds, self._rir_ds, self._sample_rate)
-
