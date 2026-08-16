@@ -190,5 +190,20 @@ def render_scene_from_recipe(
         "metadata": metadata 
     }
 
+def render_clean_scene(
+    speech_index: int,
+    speech_ds: Dataset,
+    sr: int,
+) -> RenderedScene:
+    speech_rec = speech_ds[speech_index]
+    audio = read_and_resample(speech_rec["audio"], sr)
+    return {
+        "audio" : audio,
+        "text" : speech_rec["text"],
+        "metadata" : {
+            "info": "clean"
+        }
+    }
+
 
     
