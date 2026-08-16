@@ -325,7 +325,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     import numpy as np
     import torch
-    from datasets import Audio, Value, load_dataset
+    from datasets import Audio, load_dataset
     from transformers import AutoProcessor, Qwen3ASRForConditionalGeneration
 
     from data_utils import (
@@ -349,7 +349,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "bilguun/musan-noise",
         split="train",
         cache_dir=cache_dir,
-    ).cast_column("audio", Value("string"))
+    ).cast_column("audio", Audio(decode=False))
     rir_ds = load_dataset(
         "parquet",
         data_files=TREBLE_MONO_PARQUET,
