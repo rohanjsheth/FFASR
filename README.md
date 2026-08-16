@@ -65,6 +65,9 @@ offsets, and random-noise seed; only SNR changes. Bands use achieved
 The command writes auditable per-utterance predictions and a corpus-level WER
 summary under `results/snr_wer/`.
 
+See [Evaluation baselines](docs/evaluation.md) for the recorded pretrained
+Qwen3-ASR results, the FFASR comparison, and the next validation gate.
+
 ## Simulation process
 
 ### Inputs and notation
