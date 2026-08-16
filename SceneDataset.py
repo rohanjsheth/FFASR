@@ -38,3 +38,6 @@ class SceneDataset(Dataset):
 
         recipe = sample_scene_recipe(idx, self._noise_ds, self._groups, rng, self._number_of_noises)
         return render_scene_from_recipe(recipe, self._speech_ds, self._noise_ds, self._rir_ds, self._sample_rate)
+
+    def set_epoch(self, epoch: int):
+        self._epoch() = epoch
