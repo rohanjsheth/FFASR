@@ -20,6 +20,7 @@ dependencies = [
 ]
 
 [project.scripts]
+ffasr-evaluate-snr = "scripts.evaluate_snr_wer:main"
 ffasr-render-samples = "scripts.render_samples:main"
 ffasr-smoke-test = "scripts.smoke_test_dataloader:main"
 

@@ -18,6 +18,8 @@ be resampled to the same sample rate before they are passed to `make_scene`.
   waveforms and spectrograms.
 - `scripts/smoke_test_dataloader.py` streams two examples and validates the
   dataset-to-processor path.
+- `scripts/evaluate_snr_wer.py` measures paired clean and simulated WER across
+  high-, mid-, and low-SNR bands.
 
 ## Setup
 
@@ -45,6 +47,23 @@ Pass `--with-model` to add a full-model forward-loss check, or use
 `--train-steps 1` to verify frozen-module gradients and one optimizer update on
 a CUDA machine. See the [Colab GPU runbook](docs/colab.md) for the complete
 hosted workflow.
+
+On a CUDA machine, run a small paired WER evaluation before scaling to the
+default 50 utterances per band:
+
+```bash
+uv run ffasr-evaluate-snr \
+  --cache-dir /content/hf-cache \
+  --samples-per-band 5 \
+  --batch-size 2
+```
+
+Each selected utterance is evaluated clean and in all three simulated bands.
+The simulated versions share their room, receiver, RIRs, noise recordings,
+offsets, and random-noise seed; only SNR changes. Bands use achieved
+`final_snr_db`: high is above 14 dB, mid is 8--12 dB, and low is below 6 dB.
+The command writes auditable per-utterance predictions and a corpus-level WER
+summary under `results/snr_wer/`.
 
 ## Simulation process
 

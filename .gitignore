@@ -19,4 +19,7 @@ wheels/
 sample_audios/
 sample_plots/
 
+#evaluation outputs
+results/
+
 docs
