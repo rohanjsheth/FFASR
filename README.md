@@ -5,6 +5,31 @@ rendered noise sources. The scene renderer operates on mono, floating-point
 waveforms. All source waveforms and room impulse responses (RIRs) must already
 be resampled to the same sample rate before they are passed to `make_scene`.
 
+## Project layout
+
+- `audio_utils/audio_mixing.py` contains the DSP primitives.
+- `audio_utils/make_scene.py` composes one simulated acoustic scene.
+- `audio_utils/audio_types.py` defines the scene input types.
+- `data_utils.py` handles dataset indexing, recipe sampling, audio loading, and
+  deterministic rendering from a recipe.
+- `scripts/render_samples.py` is a manual inspection tool that writes example
+  waveforms and spectrograms.
+
+## Setup
+
+The project targets Python 3.11 or newer and uses `uv` for environment and
+lockfile management:
+
+```bash
+uv sync
+```
+
+To inspect the sample-rendering command without downloading data:
+
+```bash
+uv run ffasr-render-samples --help
+```
+
 ## Simulation process
 
 ### Inputs and notation
@@ -22,6 +47,8 @@ For one scene, the renderer receives:
 | `noise_offsets_ms[i]` | $o_i$ | Start of the noise source's pre-roll segment, in milliseconds |
 | `sr` | $f_s$ | Sample rate in samples per second |
 | `target_snr_db` | $T$ | Desired SNR of speech relative to the aggregate noise field |
+| `pink_db` | $B$ | Pink-noise level in dB below active-speech RMS |
+| `rng_seed` |  | Seed used to reproduce the pink-noise waveform |
 
 There must be at least one noise source. The noise waveform, RIR, distance, and
 offset lists must all have the same length.
@@ -32,7 +59,8 @@ The high-level signal flow is:
 speech:       dry source -> align RIR -> full convolution -> room speech
 each noise:   dry source -> RMS reference -> offset/loop -> pre-roll convolution -> room noise
 noise field:  room noises -> sum -> aggregate SNR gain -> scaled noise
-output:       room speech + scaled noise -> shared peak guard -> final mixture
+pink bed:     seeded pink noise -> speech-relative gain -> scaled pink noise
+output:       room speech + scaled noise + pink bed -> shared peak guard -> final mixture
 ```
 
 ### 0. Prepare inputs at a common sample rate
@@ -53,8 +81,9 @@ converted to the same $f_s$ before scene rendering. The current example uses
 rate.
 
 The caller is also responsible for selecting the speech utterance, room and
-source RIRs, target SNR, and per-noise pre-roll offsets. These realized values
-become fixed inputs to the transformations below.
+source RIRs, target SNR, pink-noise level, random seed, and per-noise pre-roll
+offsets. These realized values become fixed inputs to the transformations
+below.
 
 ### 1. Locate and trim each RIR
 
@@ -146,7 +175,8 @@ $$
 
 The offset denotes the beginning of the source segment used as convolution
 pre-roll. Offset selection happens outside `make_scene`; the renderer consumes
-and records the realized offsets but does not own a random-number generator.
+and records the realized offsets. The RNG passed to `make_scene` is used only
+to generate the pink-noise waveform.
 
 For a raw noise RIR containing $M_i$ samples, the renderer reserves
 
@@ -281,16 +311,33 @@ $$
 Because $g$ is applied after the sources are summed, every noise source receives
 the same final gain and their relative contributions are preserved.
 
-### 8. Create the mixture
+### 8. Add the pink-noise bed and create the mixture
 
-The reverberant speech and scaled aggregate noise are added sample by sample:
+The renderer generates a unit-standard-deviation pink-noise waveform $z_p[n]$
+from the supplied RNG. Given the configured pink-noise level $B$, its amplitude
+gain relative to active-speech RMS is
 
 $$
-y[n] = s_r[n] + n_g[n].
+g_p = \sqrt{P_s}10^{-B/20}.
+$$
+
+The complete noise component is
+
+$$
+n_c[n] = n_g[n] + g_p z_p[n],
+$$
+
+and the mixture is
+
+$$
+y[n] = s_r[n] + n_c[n].
 $$
 
 At this point, `mixture`, `speech`, and `noise` refer respectively to $y[n]$,
-$s_r[n]$, and $n_g[n]$. All three have length $L$.
+$s_r[n]$, and $n_c[n]$. All three have length $L$. The configured target SNR
+is applied to the spatially rendered aggregate noise $n_g[n]$ before pink noise
+is added. Consequently, `final_snr_db`, which includes both noise components,
+can be lower than `target_snr_db`.
 
 ### 9. Apply the shared peak guard
 
@@ -316,7 +363,7 @@ The same scale is applied to the mixture and both component signals:
 $$
 y_f[n] = a y[n], \qquad
 s_f[n] = a s_r[n], \qquad
-n_f[n] = a n_g[n].
+n_f[n] = a n_c[n].
 $$
 
 Using one shared scale preserves the component sum
@@ -342,13 +389,15 @@ $$
 
 | Field | Meaning |
 | --- | --- |
-| `target_snr_db` | Requested aggregate active-speech SNR $T$ |
-| `final_snr_db` | Measured SNR after the shared peak guard |
+| `sr` | Scene sample rate |
+| `target_snr_db` | Requested active-speech SNR for the spatial aggregate noise $n_g[n]$ |
+| `pink_db` | Pink-noise level $B$ below active-speech RMS |
+| `rng_seed` | Seed used to reproduce the pink-noise waveform |
+| `final_snr_db` | Measured SNR against spatial plus pink noise after the shared peak guard |
 | `speech_drr_db` | DRR of the speech source path, in dB |
-| `noise_drrs_db` | DRRs of the noise source paths, in dB and in the same order as `noise_rirs` |
+| `noises` | Ordered list of per-noise objects containing `drr_db` and `offset_ms` |
 | `clipping_scale` | Shared scale $a$; `1.0` means no attenuation |
 | `clipped` | Whether the mixture peak exceeded `0.99` before scaling |
-| `offsets` | Input pre-roll offsets for all noise sources, in milliseconds |
 
 The returned waveform has the same length as the full reverberant speech,
 including its RIR tail.
@@ -357,7 +406,7 @@ including its RIR tail.
 
 `audio_utils.audio_mixing.drr_db` calculates the direct-to-reverberant ratio
 (DRR) for an RIR. `make_scene` records this as `speech_drr_db` for the speech
-path and as `noise_drrs_db` for each noise path. The direct-path index is
+path and as `noises[i].drr_db` for each noise path. The direct-path index is
 estimated as described above. A window with a half-width of 1.25 ms is placed
 around that index, giving an approximately 2.5 ms total direct-path window.
 

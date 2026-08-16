@@ -1,7 +1,26 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "ffasr"
 version = "0.1.0"
-description = "Add your description here"
+description = "Synthetic far-field ASR scene generation and data preparation"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "datasets>=5.0,<6",
+    "matplotlib>=3.10,<4",
+    "numpy>=2.0,<3",
+    "scipy>=1.15,<2",
+    "soundfile>=0.13,<1",
+]
+
+[project.scripts]
+ffasr-render-samples = "scripts.render_samples:main"
+
+[tool.setuptools]
+py-modules = ["data_utils"]
+
+[tool.setuptools.packages.find]
+include = ["audio_utils*", "scripts*"]
