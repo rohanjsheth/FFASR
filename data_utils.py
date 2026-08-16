@@ -132,7 +132,7 @@ def render_scene_from_recipe(
     noise_ds: Dataset,
     rir_ds: Dataset,
     sr: int,
-) -> tuple[FloatArray, str, dict[str, Any]]:
+) -> dict[str, Any]:
     speech_rec = speech_ds[recipe.speech_index]
     speech_rir_rec = rir_ds[recipe.speech_rir_index]
     noise_recs = [noise_ds[index] for index in recipe.noise_indices]
@@ -178,7 +178,11 @@ def render_scene_from_recipe(
                 rng_seed=recipe.rng_seed,
             )
 
-    return scene, text, metadata # maybe modify return later
+    return {
+        "audio": scene, 
+        "text": text, 
+        "metadata": metadata 
+    }
 
 
     

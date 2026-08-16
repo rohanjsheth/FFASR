@@ -86,13 +86,16 @@ def main(argv: Sequence[str] | None = None) -> int:
             rng=recipe_rng,
             number_of_noises=args.number_of_noises,
         )
-        scene, text, metadata = render_scene_from_recipe(
+        rendered_scene = render_scene_from_recipe(
             recipe=recipe,
             speech_ds=speech_ds,
             noise_ds=noise_ds,
             rir_ds=rir_ds,
             sr=args.sample_rate,
         )
+        scene = rendered_scene["audio"]
+        text = rendered_scene["text"]
+        metadata = rendered_scene["metadata"]
 
         stem = f"{speech_index:04d}_audio_reverb"
         sf.write(audio_dir / f"{stem}.wav", scene, args.sample_rate, subtype="FLOAT")
