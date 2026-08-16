@@ -16,7 +16,7 @@ dependencies = [
     "scipy>=1.15,<2",
     "soundfile>=0.13,<1",
     "torch>=2.6,<3",
-    "transformers>=5.13,<6",
+    "transformers>=5.15,<6",
 ]
 
 [project.scripts]

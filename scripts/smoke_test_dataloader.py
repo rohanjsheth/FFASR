@@ -174,6 +174,12 @@ def validate_batch(batch: Any, batch_size: int) -> None:
     supervised_tokens = (labels != -100).sum(dim=1)
     if torch.any(supervised_tokens == 0):
         raise ValueError("At least one example has no supervised label tokens")
+    masked_tokens = (labels == -100).sum(dim=1)
+    if torch.any(masked_tokens == 0):
+        raise ValueError(
+            "At least one example has no masked audio or padding tokens; "
+            "Qwen3-ASR label generation requires transformers>=5.15"
+        )
 
     print("Processor batch:")
     for key, value in batch.items():
@@ -183,13 +189,26 @@ def validate_batch(batch: Any, batch_size: int) -> None:
     print(f"  supervised tokens per example: {supervised_tokens.tolist()}")
 
 
-def print_supervised_labels(processor: Any, batch: Any) -> None:
-    """Decode the unmasked labels so the intended training targets are visible."""
+def validate_and_print_supervised_labels(
+    processor: Any,
+    batch: Any,
+    expected_texts: Sequence[str],
+    language: str,
+) -> None:
+    """Decode labels and verify that each intended transcript is supervised."""
     print("Decoded non-masked labels:")
-    for index, labels in enumerate(batch["labels"]):
+    for index, (labels, expected_text) in enumerate(
+        zip(batch["labels"], expected_texts, strict=True)
+    ):
         token_ids = labels[labels != -100].tolist()
         decoded = processor.tokenizer.decode(token_ids, skip_special_tokens=False)
         print(f"  example {index}: {decoded!r}")
+        expected_target = f"language {language}<asr_text>{expected_text}"
+        if expected_target not in decoded:
+            raise ValueError(
+                f"Example {index} labels do not contain the expected ASR target; "
+                "check the Transformers version and processor output"
+            )
 
 
 def move_batch_to_device(batch: Any, device: Any) -> dict[str, Any]:
@@ -477,7 +496,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     batch = next(iter(loader))
     validate_batch(batch, batch_size=2)
-    print_supervised_labels(processor, batch)
+    validate_and_print_supervised_labels(
+        processor,
+        batch,
+        expected_texts=[clean_scene["text"], simulated_scene["text"]],
+        language=args.language,
+    )
 
     if args.with_model:
         run_model_checks(
