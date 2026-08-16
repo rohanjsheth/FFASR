@@ -14,13 +14,16 @@ dependencies = [
     "numpy>=2.0,<3",
     "scipy>=1.15,<2",
     "soundfile>=0.13,<1",
+    "torch>=2.6,<3",
+    "transformers>=5.13,<6",
 ]
 
 [project.scripts]
 ffasr-render-samples = "scripts.render_samples:main"
+ffasr-smoke-test = "scripts.smoke_test_dataloader:main"
 
 [tool.setuptools]
-py-modules = ["data_utils"]
+py-modules = ["SceneDataset", "data_collator", "data_utils"]
 
 [tool.setuptools.packages.find]
 include = ["audio_utils*", "scripts*"]

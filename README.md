@@ -12,8 +12,12 @@ be resampled to the same sample rate before they are passed to `make_scene`.
 - `audio_utils/audio_types.py` defines the scene input types.
 - `data_utils.py` handles dataset indexing, recipe sampling, audio loading, and
   deterministic rendering from a recipe.
+- `SceneDataset.py` selects clean or simulated examples for PyTorch.
+- `data_collator.py` converts rendered examples into padded Qwen3-ASR inputs.
 - `scripts/render_samples.py` is a manual inspection tool that writes example
   waveforms and spectrograms.
+- `scripts/smoke_test_dataloader.py` streams two examples and validates the
+  dataset-to-processor path.
 
 ## Setup
 
@@ -28,6 +32,13 @@ To inspect the sample-rendering command without downloading data:
 
 ```bash
 uv run ffasr-render-samples --help
+```
+
+To exercise one clean and one simulated example through the real Qwen3-ASR
+processor without downloading the complete source datasets:
+
+```bash
+uv run ffasr-smoke-test
 ```
 
 ## Simulation process
