@@ -18,6 +18,14 @@ if TYPE_CHECKING:
 
 
 DEFAULT_MODEL_ID = "Qwen/Qwen3-ASR-1.7B-hf"
+LIBRISPEECH_TEST_CLEAN_PARQUET = (
+    "https://huggingface.co/datasets/openslr/librispeech_asr/resolve/main/"
+    "clean/test/0000.parquet"
+)
+TREBLE_MONO_PARQUET = (
+    "https://huggingface.co/datasets/treble-technologies/Treble10-RIR/"
+    "resolve/main/data/rir_mono-00000-of-00001.parquet"
+)
 BAND_ORDER = ("high", "mid", "low")
 
 # Target values retain the scene sampler's original -8 to 24 dB range. Results
@@ -332,9 +340,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     cache_dir = str(args.cache_dir)
     print("Loading full map-style evaluation datasets...")
     speech_ds = load_dataset(
-        "openslr/librispeech_asr",
-        "clean",
-        split="test",
+        "parquet",
+        data_files=LIBRISPEECH_TEST_CLEAN_PARQUET,
+        split="train",
         cache_dir=cache_dir,
     ).cast_column("audio", Audio(decode=False))
     noise_ds = load_dataset(
@@ -343,8 +351,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         cache_dir=cache_dir,
     ).cast_column("audio", Value("string"))
     rir_ds = load_dataset(
-        "treble-technologies/Treble10-RIR",
-        split="rir_mono",
+        "parquet",
+        data_files=TREBLE_MONO_PARQUET,
+        split="train",
         cache_dir=cache_dir,
     ).cast_column("audio", Audio(decode=False))
 
