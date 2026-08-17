@@ -38,7 +38,8 @@ clean_probability = 0.0
 per_device_train_batch_size = 8
 per_device_eval_batch_size = 8
 gradient_accumulation_steps = 4
-dataloader_num_workers = 4
+# Scene rendering is CPU-bound, so this tracks the pod's vCPU count (32 on an L40).
+dataloader_num_workers = 16
 
 learning_rate = 2e-5
 lr_scheduler_type = "cosine"
