@@ -10,6 +10,8 @@ from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from data_utils.room_folds import FOLDS
+
 if TYPE_CHECKING:
     import numpy as np
     from datasets import Dataset
@@ -87,6 +89,17 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--max-new-tokens", type=int, default=256)
     parser.add_argument("--number-of-noises", type=int, choices=(1, 2, 3), default=2)
+    parser.add_argument(
+        "--fold",
+        type=int,
+        choices=tuple(FOLDS),
+        default=None,
+        help=(
+            "Restrict rooms to the validation half of a training fold, so a "
+            "fine-tuned checkpoint is scored only on rooms it never saw. Omit to "
+            "use all ten rooms, which is what a pretrained baseline wants."
+        ),
+    )
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--cache-dir", type=Path, default=Path(".hf_cache"))
     parser.add_argument("--output-dir", type=Path, default=Path("results/snr_wer"))
@@ -357,6 +370,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         cache_dir=cache_dir,
     ).cast_column("audio", Audio(decode=False))
 
+    if args.fold is not None:
+        _, validation_rooms = FOLDS[args.fold]
+        # input_columns keeps the filter from reading every RIR waveform off disk.
+        rir_ds = rir_ds.filter(
+            lambda room: room in validation_rooms,
+            input_columns="Room",
+        )
+        print(
+            f"Fold {args.fold}: scoring only held-out rooms "
+            f"{sorted(validation_rooms)}"
+        )
+
     if args.samples_per_band > len(speech_ds):
         raise ValueError(
             f"Requested {args.samples_per_band} speech records from {len(speech_ds)}"
@@ -515,6 +540,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         "seed": args.seed,
         "samples_per_band": args.samples_per_band,
         "number_of_noises": args.number_of_noises,
+        "fold": args.fold,
+        "rooms": sorted(groups),
         "band_definitions": {
             "high": "final_snr_db > 14",
             "mid": "8 <= final_snr_db <= 12",

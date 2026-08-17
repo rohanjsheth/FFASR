@@ -37,12 +37,7 @@ def mean_octave_band_t30(values: object) -> float:
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--cache-dir",
-        type=Path,
-        default=None,
-        help="Optional Hugging Face cache directory.",
-    )
+    parser.add_argument("--cache-dir", type=Path, default=Path(".hf_cache"))
     return parser.parse_args(argv)
 
 
@@ -54,7 +49,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         split="train",
         columns=METADATA_COLUMNS,
         streaming=True,
-        cache_dir=str(args.cache_dir) if args.cache_dir else None,
+        cache_dir=str(args.cache_dir),
     )
     metadata = pd.DataFrame(rows)
     metadata["Room Volume [m³]"] = pd.to_numeric(metadata["Room Volume [m³]"])
