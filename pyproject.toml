@@ -27,4 +27,4 @@ ffasr-render-samples = "scripts.render_samples:main"
 ffasr-smoke-test = "scripts.smoke_test_dataloader:main"
 
 [tool.setuptools.packages.find]
-include = ["audio_utils*", "data_utils*", "scripts*"]
+include = ["audio_utils*", "data_utils*", "scripts*", "training_utils*"]
