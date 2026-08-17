@@ -17,6 +17,12 @@ dependencies = [
     "scipy>=1.15,<2",
     "soundfile>=0.13,<1",
     "torch>=2.6,<3",
+    # datasets>=5 encodes audio through torchcodec on any non-streaming load, so
+    # this is required even though nothing here imports it. Its build is tied to
+    # torch: 0.7.x pairs with torch 2.8. Bumping torch means bumping this, and
+    # pip's default wheel targets the newest CUDA, which will not load against an
+    # older one. Needs FFmpeg shared libraries present, which pip cannot install.
+    "torchcodec>=0.7,<0.8",
     "transformers>=5.15,<6",
 ]
 
