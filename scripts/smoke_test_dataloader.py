@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from datasets import Dataset, IterableDataset
 
-    from data_utils import RenderedScene
+    from data_utils.data_utils import RenderedScene
 
 
 DEFAULT_MODEL_ID = "Qwen/Qwen3-ASR-1.7B-hf"
@@ -399,8 +399,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     from torch.utils.data import DataLoader
     from transformers import AutoProcessor
 
-    from data_collator import Qwen3ASRDataCollator
-    from SceneDataset import SceneDataset
+    from data_utils.data_collator import Qwen3ASRDataCollator
+    from data_utils.SceneDataset import SceneDataset
 
     cache_dir = str(args.cache_dir)
 

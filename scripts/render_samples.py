@@ -33,7 +33,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     from datasets import Audio, Value, load_dataset
     from scipy.signal import spectrogram
 
-    from data_utils import (
+    from data_utils.data_utils import (
         get_groups,
         render_scene_from_recipe,
         sample_scene_recipe,

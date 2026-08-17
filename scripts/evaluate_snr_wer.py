@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     import numpy as np
     from datasets import Dataset
 
-    from data_utils import RenderedScene, SceneRecipe
+    from data_utils.data_utils import RenderedScene, SceneRecipe
 
 
 DEFAULT_MODEL_ID = "Qwen/Qwen3-ASR-1.7B-hf"
@@ -153,7 +153,7 @@ def render_in_band(
     max_attempts: int,
 ) -> tuple[SceneRecipe, RenderedScene, int]:
     """Render until achieved SNR lands inside the requested evaluation band."""
-    from data_utils import render_scene_from_recipe
+    from data_utils.data_utils import render_scene_from_recipe
 
     lower, upper = TARGET_SNR_RANGES[requested_band]
     rejected = 0
@@ -328,7 +328,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     from datasets import Audio, load_dataset
     from transformers import AutoProcessor, Qwen3ASRForConditionalGeneration
 
-    from data_utils import (
+    from data_utils.data_utils import (
         get_groups,
         render_clean_scene,
         sample_scene_recipe,

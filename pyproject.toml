@@ -24,8 +24,5 @@ ffasr-evaluate-snr = "scripts.evaluate_snr_wer:main"
 ffasr-render-samples = "scripts.render_samples:main"
 ffasr-smoke-test = "scripts.smoke_test_dataloader:main"
 
-[tool.setuptools]
-py-modules = ["SceneDataset", "data_collator", "data_utils"]
-
 [tool.setuptools.packages.find]
-include = ["audio_utils*", "scripts*"]
+include = ["audio_utils*", "data_utils*", "scripts*", "training_utils*"]

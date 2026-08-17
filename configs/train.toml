@@ -1,0 +1,61 @@
+[model]
+model_id = "Qwen/Qwen3-ASR-1.7B-hf"
+
+[datasets]
+speech_id = "openslr/librispeech_asr"
+speech_config = "clean"
+speech_split = "train.100"
+validation_speech_split = "validation"
+noise_id = "bilguun/musan-noise"
+noise_split = "train"
+rir_parquet = "https://huggingface.co/datasets/treble-technologies/Treble10-RIR/resolve/main/data/rir_mono-00000-of-00001.parquet"
+
+[paths]
+cache_dir = ".cache/huggingface"
+output_root = "outputs"
+
+[scene]
+sample_rate = 16000
+language = "English"
+base_seed = 42
+number_of_noises = 2
+clean_probability = 0.25
+
+[validation]
+# A fixed subset keeps checkpoint evaluation useful without dominating training.
+num_examples = 256
+seed = 43
+# Autoregressive WER is slower than loss, so score a smaller fixed slice.
+wer_examples = 50
+wer_batch_size = 4
+max_new_tokens = 256
+
+[training]
+# Effective batch size on one GPU is batch size × accumulation steps.
+per_device_train_batch_size = 8
+per_device_eval_batch_size = 8
+gradient_accumulation_steps = 4
+dataloader_num_workers = 4
+
+learning_rate = 2e-5
+lr_scheduler_type = "cosine"
+# Transformers 5 accepts a fraction below 1 here as a ratio of total steps.
+warmup_steps = 0.03
+weight_decay = 0.01
+max_grad_norm = 1.0
+num_train_epochs = 1.0
+bf16 = true
+fp16 = false
+gradient_checkpointing = true
+
+eval_strategy = "steps"
+eval_steps = 500
+save_strategy = "steps"
+save_steps = 500
+save_total_limit = 3
+load_best_model_at_end = true
+metric_for_best_model = "eval_loss"
+greater_is_better = false
+logging_steps = 10
+remove_unused_columns = false
+report_to = "none"
