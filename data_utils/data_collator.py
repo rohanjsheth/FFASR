@@ -18,6 +18,7 @@ class Qwen3ASRDataCollator:
         self._processor = processor
         self._sample_rate = sample_rate
         self._language = language
+        self._asr_text_id = processor.tokenizer.convert_tokens_to_ids("<asr_text>")
 
     def __call__(self, features: list[RenderedScene]) -> BatchFeature:
         if not features:
@@ -50,7 +51,7 @@ class Qwen3ASRDataCollator:
             for audio, text in zip(audios, texts, strict=True)
         ]
 
-        return self._processor.apply_chat_template(
+        batch = self._processor.apply_chat_template(
             conversations,
             tokenize=True,
             return_dict=True,
@@ -59,3 +60,9 @@ class Qwen3ASRDataCollator:
                 "sampling_rate": self._sample_rate,
             },
         )
+
+        for input_ids, labels in zip(batch["input_ids"], batch["labels"], strict=True):
+            boundary = (input_ids == self._asr_text_id).nonzero()[-1].item()
+            labels[: boundary + 1] = -100
+
+        return batch
