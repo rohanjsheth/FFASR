@@ -1,5 +1,5 @@
 from datasets import Dataset as HFDataset
-from data_utils import (
+from data_utils.data_utils import (
     RIRIndex,
     RenderedScene,
     get_groups,

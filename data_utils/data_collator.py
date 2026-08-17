@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from data_utils import RenderedScene
+from data_utils.data_utils import RenderedScene
 
 if TYPE_CHECKING:
     from transformers import BatchFeature, Qwen3ASRProcessor
