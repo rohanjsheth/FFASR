@@ -41,7 +41,7 @@ gradient_accumulation_steps = 4
 # Scene rendering is CPU-bound, so this tracks the pod's vCPU count (32 on an L40).
 dataloader_num_workers = 16
 
-learning_rate = 2e-5
+learning_rate = 2e-6
 lr_scheduler_type = "cosine"
 # Transformers 5 accepts a fraction below 1 here as a ratio of total steps.
 warmup_steps = 0.03
