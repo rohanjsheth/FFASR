@@ -6,10 +6,17 @@ model_id = "Qwen/Qwen3-ASR-1.7B-hf"
 load_dtype = "float32"
 
 [datasets]
-speech_id = "openslr/librispeech_asr"
+# LibriTTS transcripts are naturally cased and punctuated, matching what the
+# frozen decoder already emits. LibriSpeech's ALL CAPS tokenises ~1.7x longer and
+# strands the decoder in a token space its language prior barely covers.
+speech_id = "mythicinfinity/libritts"
 speech_config = "clean"
-speech_split = "train.100"
-validation_speech_split = "validation"
+speech_split = "train.clean.100"
+validation_speech_split = "dev.clean"
+text_column = "text_normalized"
+# Reverb tails run to ~1s, and noise offsets are drawn up to 3000 ms, so clips
+# shorter than this never express the far-field effect being trained for.
+min_duration_seconds = 2.0
 noise_id = "bilguun/musan-noise"
 noise_split = "train"
 rir_parquet = "https://huggingface.co/datasets/treble-technologies/Treble10-RIR/resolve/main/data/rir_mono-00000-of-00001.parquet"
@@ -41,7 +48,7 @@ gradient_accumulation_steps = 4
 # Scene rendering is CPU-bound, so this tracks the pod's vCPU count (32 on an L40).
 dataloader_num_workers = 16
 
-learning_rate = 2e-6
+learning_rate = 2e-5
 lr_scheduler_type = "cosine"
 # Transformers 5 accepts a fraction below 1 here as a ratio of total steps.
 warmup_steps = 0.03

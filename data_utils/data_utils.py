@@ -46,6 +46,17 @@ def read_audio(audio_record: dict[str, Any] | str) -> tuple[FloatArray, int]:
     with xopen(path, "rb") as audio_file:
         return sf.read(audio_file, dtype="float64")
 
+def audio_duration_seconds(audio_record: dict[str, Any] | str) -> float:
+    """Duration from the audio header, without decoding samples."""
+    if isinstance(audio_record, dict) and audio_record.get("bytes") is not None:
+        info = sf.info(io.BytesIO(audio_record["bytes"]))
+    else:
+        path = audio_record if isinstance(audio_record, str) else audio_record.get("path")
+        if not path:
+            raise ValueError("Audio record has neither bytes nor a path")
+        info = sf.info(path)
+    return info.frames / info.samplerate
+
 def resample(audio: FloatArray, input_sr: int, global_sr : int) -> FloatArray:
     """Resample one waveform to the scene sample rate."""
     if input_sr == global_sr:

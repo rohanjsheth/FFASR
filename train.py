@@ -14,6 +14,7 @@ from transformers import (
 from transformers.trainer_utils import get_last_checkpoint
 
 from data_utils.SceneDataset import SceneDataset
+from data_utils.data_utils import audio_duration_seconds
 from data_utils.data_collator import Qwen3ASRDataCollator
 from data_utils.room_folds import FOLDS
 from training_utils.epoch_callback import SceneEpochCallback
@@ -43,19 +44,27 @@ def load_speech_splits(
     cache_dir: str,
 ) -> tuple[Dataset, Dataset]:
     """Load the training split and a fixed shuffled slice for validation."""
-    train_ds = load_dataset(
-        dataset_config["speech_id"],
-        dataset_config["speech_config"],
-        split=dataset_config["speech_split"],
-        cache_dir=cache_dir,
-    ).cast_column("audio", Audio(decode=False))
+    text_column = dataset_config["text_column"]
+    min_seconds = dataset_config["min_duration_seconds"]
 
-    validation_ds = load_dataset(
-        dataset_config["speech_id"],
-        dataset_config["speech_config"],
-        split=dataset_config["validation_speech_split"],
-        cache_dir=cache_dir,
-    ).cast_column("audio", Audio(decode=False))
+    def prepare(split: str) -> Dataset:
+        speech_ds = load_dataset(
+            dataset_config["speech_id"],
+            dataset_config["speech_config"],
+            split=split,
+            cache_dir=cache_dir,
+        ).cast_column("audio", Audio(decode=False))
+        if text_column != "text":
+            speech_ds = speech_ds.rename_column(text_column, "text")
+        # Header read only, no decode; datasets caches the result.
+        return speech_ds.filter(
+            lambda audio: audio_duration_seconds(audio) >= min_seconds,
+            input_columns="audio",
+            num_proc=8,
+        )
+
+    train_ds = prepare(dataset_config["speech_split"])
+    validation_ds = prepare(dataset_config["validation_speech_split"])
     validation_ds = validation_ds.shuffle(seed=validation_config["seed"]).select(
         range(validation_config["num_examples"])
     )
