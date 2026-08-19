@@ -121,7 +121,7 @@ def sample_scene_recipe(
 
     noise_indices = tuple(int(index) for index in noise_indices)
 
-    target_snr_db = float(rng.uniform(-5, 24))
+    target_snr_db = float(rng.uniform(-8, 24))
     offsets_ms = tuple(
         float(offset)
         for offset in rng.uniform(0, 3000, size=number_of_noises)
