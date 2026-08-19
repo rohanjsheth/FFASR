@@ -9,10 +9,10 @@ load_dtype = "float32"
 # LibriTTS transcripts are naturally cased and punctuated, matching what the
 # frozen decoder already emits. LibriSpeech's ALL CAPS tokenises ~1.7x longer and
 # strands the decoder in a token space its language prior barely covers.
-speech_id = "mythicinfinity/libritts"
-speech_config = "clean"
-speech_split = "train.clean.100"
-validation_speech_split = "dev.clean"
+# Load the split's parquet shards directly. The "clean" config pulls every clean
+# split (train.clean.360 included) — 250 hours downloaded to use 54.
+speech_train_parquet = "hf://datasets/mythicinfinity/libritts/data/train.clean.100/*.parquet"
+speech_validation_parquet = "hf://datasets/mythicinfinity/libritts/data/dev.clean/*.parquet"
 text_column = "text_normalized"
 # Reverb tails run to ~1s, and noise offsets are drawn up to 3000 ms, so clips
 # shorter than this never express the far-field effect being trained for.

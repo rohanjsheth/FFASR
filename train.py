@@ -47,11 +47,11 @@ def load_speech_splits(
     text_column = dataset_config["text_column"]
     min_seconds = dataset_config["min_duration_seconds"]
 
-    def prepare(split: str) -> Dataset:
+    def prepare(parquet_pattern: str) -> Dataset:
         speech_ds = load_dataset(
-            dataset_config["speech_id"],
-            dataset_config["speech_config"],
-            split=split,
+            "parquet",
+            data_files=parquet_pattern,
+            split="train",
             cache_dir=cache_dir,
         ).cast_column("audio", Audio(decode=False))
         if text_column != "text":
@@ -63,8 +63,8 @@ def load_speech_splits(
             num_proc=8,
         )
 
-    train_ds = prepare(dataset_config["speech_split"])
-    validation_ds = prepare(dataset_config["validation_speech_split"])
+    train_ds = prepare(dataset_config["speech_train_parquet"])
+    validation_ds = prepare(dataset_config["speech_validation_parquet"])
     validation_ds = validation_ds.shuffle(seed=validation_config["seed"]).select(
         range(validation_config["num_examples"])
     )
