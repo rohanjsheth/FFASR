@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import argparse
 import json
-import unicodedata
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from data_utils.room_folds import FOLDS
+from eval_utils.text_norm import edit_distance, normalize_for_wer
+from eval_utils.transcribe import transcribe_batch
 
 if TYPE_CHECKING:
     import numpy as np
@@ -85,7 +86,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--model-id", default=DEFAULT_MODEL_ID)
     parser.add_argument("--language", default="English")
     parser.add_argument("--sample-rate", type=int, default=16_000)
-    parser.add_argument("--samples-per-band", type=int, default=50)
+    parser.add_argument("--samples-per-band", type=int, default=2000)
     parser.add_argument("--batch-size", type=int, default=4)
     parser.add_argument("--max-new-tokens", type=int, default=256)
     parser.add_argument("--number-of-noises", type=int, choices=(1, 2, 3), default=2)
@@ -113,35 +114,6 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         ),
     )
     return parser.parse_args(argv)
-
-
-def normalize_for_wer(text: str) -> str:
-    """Apply a transparent case- and punctuation-insensitive WER normalization."""
-    normalized = unicodedata.normalize("NFKC", text).casefold()
-    without_punctuation = "".join(
-        character
-        for character in normalized
-        if not unicodedata.category(character).startswith(("P", "S"))
-    )
-    return " ".join(without_punctuation.split())
-
-
-def edit_distance(reference: Sequence[str], hypothesis: Sequence[str]) -> int:
-    """Return word-level Levenshtein distance using linear working memory."""
-    previous = list(range(len(hypothesis) + 1))
-    for reference_index, reference_word in enumerate(reference, start=1):
-        current = [reference_index]
-        for hypothesis_index, hypothesis_word in enumerate(hypothesis, start=1):
-            substitution_cost = int(reference_word != hypothesis_word)
-            current.append(
-                min(
-                    previous[hypothesis_index] + 1,
-                    current[hypothesis_index - 1] + 1,
-                    previous[hypothesis_index - 1] + substitution_cost,
-                )
-            )
-        previous = current
-    return previous[-1]
 
 
 def classify_snr(snr_db: float) -> str | None:
@@ -190,45 +162,6 @@ def render_in_band(
         f"Could not render a {requested_band}-SNR scene after {max_attempts} "
         "attempts; inspect target and realized SNR values"
     )
-
-
-def transcribe_batch(
-    model: Any,
-    processor: Any,
-    scenes: Sequence[RenderedScene],
-    language: str,
-    sample_rate: int,
-    max_new_tokens: int,
-    device: Any,
-    model_dtype: Any,
-) -> list[str]:
-    """Greedily transcribe one batch and return only generated transcript text."""
-    import torch
-
-    processor_inputs = processor.apply_transcription_request(
-        audio=[scene["audio"] for scene in scenes],
-        language=language,
-        processor_kwargs={"sampling_rate": sample_rate},
-    )
-    prompt_length = processor_inputs["input_ids"].shape[1]
-    processor_inputs = processor_inputs.to(device, model_dtype)
-
-    with torch.inference_mode():
-        output_ids = model.generate(
-            **processor_inputs,
-            do_sample=False,
-            num_beams=1,
-            max_new_tokens=max_new_tokens,
-            use_cache=True,
-        )
-
-    generated_ids = [output[prompt_length:] for output in output_ids]
-    decoded = processor.batch_decode(
-        generated_ids,
-        skip_special_tokens=True,
-        clean_up_tokenization_spaces=False,
-    )
-    return [str(processor.extract_transcription(text)) for text in decoded]
 
 
 def record_predictions(
@@ -547,7 +480,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "mid": "8 <= final_snr_db <= 12",
             "low": "final_snr_db < 6",
         },
-        "normalization": "Unicode NFKC, casefold, remove punctuation/symbols",
+        "normalization": "whisper EnglishTextNormalizer (with english spelling map)",
         "discarded_out_of_band_renders": rejected_by_band,
         "conditions": {
             condition: score_summary(scores[condition])

@@ -18,6 +18,7 @@ from data_utils.data_utils import audio_duration_seconds
 from data_utils.data_collator import Qwen3ASRDataCollator
 from data_utils.room_folds import FOLDS
 from training_utils.epoch_callback import SceneEpochCallback
+from training_utils.wer_callback import BandWERCallback
 
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent / "configs" / "train.toml"
 LOAD_DTYPES = {
@@ -203,7 +204,18 @@ def train(config: dict[str, Any], fold: int) -> None:
             language=scene_config["language"],
         ),
         processing_class=processor,
-        callbacks=[SceneEpochCallback(dataset=train_dataset)],
+        callbacks=[
+            SceneEpochCallback(dataset=train_dataset),
+            BandWERCallback(
+                dataset=validation_dataset,
+                processor=processor,
+                language=scene_config["language"],
+                sample_rate=sample_rate,
+                num_examples=validation_config["wer_examples"],
+                batch_size=validation_config["wer_batch_size"],
+                max_new_tokens=validation_config["wer_max_new_tokens"],
+            ),
+        ],
     )
 
     # Picks up an interrupted run on a rented box; None on a clean start.

@@ -39,6 +39,11 @@ seed = 43
 # Every validation scene must pass through a held-out room, otherwise part of the
 # fold metric measures nothing about room generalization.
 clean_probability = 0.0
+# Per-band WER alongside eval_loss at every eval step. Generation is the cost
+# here: 256 scenes adds roughly a minute per eval.
+wer_examples = 256
+wer_batch_size = 8
+wer_max_new_tokens = 256
 
 [training]
 # Effective batch size on one GPU is batch size × accumulation steps.
