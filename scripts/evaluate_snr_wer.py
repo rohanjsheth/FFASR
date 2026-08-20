@@ -36,7 +36,7 @@ BAND_ORDER = ("high", "mid", "low")
 TARGET_SNR_RANGES = {
     "high": (14.0, 24.0),
     "mid": (8.0, 12.0),
-    "low": (-8.0, 6.0),
+    "low": (0, 6.0),
 }
 
 

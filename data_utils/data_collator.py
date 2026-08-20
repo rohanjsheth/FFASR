@@ -1,11 +1,33 @@
 from __future__ import annotations
 
+import unicodedata
 from typing import TYPE_CHECKING
+
+import torch
 
 from data_utils.data_utils import RenderedScene
 
 if TYPE_CHECKING:
+    from torch import Tensor
     from transformers import BatchFeature, Qwen3ASRProcessor
+    from transformers.tokenization_utils_base import PreTrainedTokenizerBase
+
+
+def punctuation_token_ids(tokenizer: PreTrainedTokenizerBase) -> Tensor:
+    """Ids of every token that decodes to punctuation and nothing else.
+
+    Whisper's normalizer deletes these before WER is computed, so supervising
+    them spends gradient the metric cannot see.
+    """
+    special = set(tokenizer.all_special_ids)
+    ids = [
+        token_id
+        for token, token_id in tokenizer.get_vocab().items()
+        if token_id not in special
+        and (text := tokenizer.convert_tokens_to_string([token]).strip())
+        and all(unicodedata.category(char)[0] in ("P", "S") for char in text)
+    ]
+    return torch.tensor(sorted(ids), dtype=torch.long)
 
 
 class Qwen3ASRDataCollator:
@@ -19,6 +41,7 @@ class Qwen3ASRDataCollator:
         self._sample_rate = sample_rate
         self._language = language
         self._asr_text_id = processor.tokenizer.convert_tokens_to_ids("<asr_text>")
+        self._punctuation_ids = punctuation_token_ids(processor.tokenizer)
 
     def __call__(self, features: list[RenderedScene]) -> BatchFeature:
         if not features:
@@ -64,5 +87,8 @@ class Qwen3ASRDataCollator:
         for input_ids, labels in zip(batch["input_ids"], batch["labels"], strict=True):
             boundary = (input_ids == self._asr_text_id).nonzero()[-1].item()
             labels[: boundary + 1] = -100
+
+        labels = batch["labels"]
+        labels[torch.isin(labels, self._punctuation_ids)] = -100
 
         return batch
