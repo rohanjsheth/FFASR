@@ -26,11 +26,23 @@ dependencies = [
     "transformers>=5.15,<6",
 ]
 
+[project.optional-dependencies]
+# scripts/english.py is openai/whisper's reference normalizer, vendored so the
+# test suite can pin our output against it; windowed() is its only extra import.
+test = [
+    "more-itertools>=10,<12",
+    "pytest>=8,<10",
+]
+
 [project.scripts]
 ffasr-evaluate-snr = "scripts.evaluate_snr_wer:main"
 ffasr-inspect-rir-folds = "scripts.inspect_rir_folds:main"
 ffasr-render-samples = "scripts.render_samples:main"
 ffasr-smoke-test = "scripts.smoke_test_dataloader:main"
+
+[tool.setuptools.package-data]
+eval_utils = ["english_spelling.json"]
+scripts = ["english.json"]
 
 [tool.setuptools.packages.find]
 include = ["audio_utils*", "data_utils*", "eval_utils*", "scripts*", "training_utils*"]
