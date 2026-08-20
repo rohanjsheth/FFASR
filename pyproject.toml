@@ -37,8 +37,9 @@ test = [
 [project.scripts]
 ffasr-evaluate-snr = "scripts.evaluate_snr_wer:main"
 ffasr-inspect-rir-folds = "scripts.inspect_rir_folds:main"
-ffasr-render-samples = "scripts.render_samples:main"
-ffasr-smoke-test = "scripts.smoke_test_dataloader:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
 
 [tool.setuptools.package-data]
 eval_utils = ["english_spelling.json"]

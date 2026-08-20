@@ -16,8 +16,7 @@ wheels/
 .vscode
 
 #audio samples
-sample_audios/
-sample_plots/
+samples/
 
 #evaluation outputs
 results/

@@ -516,5 +516,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     return 0
 
 
+
+
+def test_smoke() -> None:
+    """Run the smoke test end to end with defaults.
+
+    Downloads a few records and loads the model, so it is slow and network-bound;
+    deselect with -k "not smoke" when that is not wanted.
+    """
+    assert main([]) == 0
+
+
 if __name__ == "__main__":
     raise SystemExit(main())
