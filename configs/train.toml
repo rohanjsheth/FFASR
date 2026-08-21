@@ -53,7 +53,7 @@ gradient_accumulation_steps = 4
 # Scene rendering is CPU-bound, so this tracks the pod's vCPU count (32 on an L40).
 dataloader_num_workers = 16
 
-learning_rate = 2e-5
+learning_rate = 2e-6
 lr_scheduler_type = "cosine"
 # Transformers 5 accepts a fraction below 1 here as a ratio of total steps.
 warmup_steps = 0.03
@@ -65,14 +65,19 @@ fp16 = false
 gradient_checkpointing = true
 
 eval_strategy = "steps"
-# train.100 is ~892 optimizer steps at batch 8 × accumulation 4, so anything near
-# 500 evaluates once and leaves load_best_model_at_end nothing to choose between.
-eval_steps = 150
+# These two must stay equal. load_best_model_at_end tracks the best metric across
+# every eval, but can only load a step that was also saved -- if the best lands on
+# an unsaved step it sets best_model_checkpoint to None, silently keeps the final
+# state, and logs no warning.
+eval_steps = 50
 save_strategy = "steps"
-save_steps = 150
+save_steps = 50
 save_total_limit = 3
 load_best_model_at_end = true
-metric_for_best_model = "eval_loss"
+# Selecting on loss picked the worst checkpoints for a whole campaign, because
+# loss and low-band WER move in opposite directions. BandWERCallback publishes
+# eval_wer_low into the metrics dict, so select on the thing we care about.
+metric_for_best_model = "eval_wer_low"
 greater_is_better = false
 logging_steps = 10
 remove_unused_columns = false
