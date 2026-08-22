@@ -215,8 +215,6 @@ def train(config: dict[str, Any], fold: int) -> None:
                 num_examples=validation_config["wer_examples"],
                 batch_size=validation_config["wer_batch_size"],
                 max_new_tokens=validation_config["wer_max_new_tokens"],
-                # Seed, fold and count fully determine the audio, so they are the
-                # cache key.
                 scene_cache=Path(cache_dir)
                 / (
                     f"val-scenes-fold{fold}"
