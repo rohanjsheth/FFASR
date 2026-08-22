@@ -85,18 +85,23 @@ def load_rir_folds(
     fold: int,
     cache_dir: str,
 ) -> tuple[Dataset, Dataset]:
-    rir_ds = load_dataset(
-        "parquet",
-        data_files=dataset_config["rir_parquet"],
-        split="train",
-        cache_dir=cache_dir,
-    ).cast_column("audio", Audio(decode=False))
+    def load(path: str) -> Dataset:
+        return load_dataset(
+            "parquet", data_files=path, split="train", cache_dir=cache_dir
+        ).cast_column("audio", Audio(decode=False))
+
+    validation_ds = load(dataset_config["rir_parquet"])
+
+    # A separate training corpus makes every rir_parquet room unseen already.
+    train_parquet = dataset_config.get("train_rir_parquet")
+    if train_parquet:
+        return load(train_parquet), validation_ds
 
     train_rooms, validation_rooms = FOLDS[fold]
     # input_columns keeps the filter from reading every RIR waveform off disk.
     return (
-        rir_ds.filter(lambda room: room in train_rooms, input_columns="Room"),
-        rir_ds.filter(lambda room: room in validation_rooms, input_columns="Room"),
+        validation_ds.filter(lambda room: room in train_rooms, input_columns="Room"),
+        validation_ds.filter(lambda room: room in validation_rooms, input_columns="Room"),
     )
 
 

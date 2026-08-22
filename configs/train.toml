@@ -20,6 +20,8 @@ min_duration_seconds = 2.0
 noise_id = "bilguun/musan-noise"
 noise_split = "train"
 rir_parquet = "https://huggingface.co/datasets/treble-technologies/Treble10-RIR/resolve/main/data/rir_mono-00000-of-00001.parquet"
+# Comment out to fall back to the two-fold room split.
+train_rir_parquet = "data/acoustic_rooms_r20.parquet"
 
 [paths]
 cache_dir = ".hf_cache"
