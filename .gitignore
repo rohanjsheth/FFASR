@@ -25,3 +25,4 @@ docs
 /metadata
 /single_channel_ir_1
 *.parquet
+.DS_Store
