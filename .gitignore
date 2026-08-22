@@ -21,3 +21,7 @@ samples/
 #evaluation outputs
 results/
 docs
+
+/metadata
+/single_channel_ir_1
+*.parquet
