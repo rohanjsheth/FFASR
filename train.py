@@ -44,7 +44,6 @@ def load_speech_splits(
     validation_config: dict[str, Any],
     cache_dir: str,
 ) -> tuple[Dataset, Dataset]:
-    """Load the training split and a fixed shuffled slice for validation."""
     text_column = dataset_config["text_column"]
     min_seconds = dataset_config["min_duration_seconds"]
 
@@ -86,7 +85,6 @@ def load_rir_folds(
     fold: int,
     cache_dir: str,
 ) -> tuple[Dataset, Dataset]:
-    """Split the room impulse responses into this fold's training and held-out rooms."""
     rir_ds = load_dataset(
         "parquet",
         data_files=dataset_config["rir_parquet"],
@@ -103,7 +101,6 @@ def load_rir_folds(
 
 
 def resolve_load_dtype(load_dtype_name: str) -> torch.dtype:
-    """Weight storage dtype, which is not the bf16/fp16 autocast compute dtype."""
     if load_dtype_name not in LOAD_DTYPES:
         raise ValueError(
             f"Unknown load_dtype {load_dtype_name!r}, expected one of "
@@ -124,7 +121,6 @@ def build_model(
     cache_dir: str,
     model_dtype: torch.dtype,
 ) -> Qwen3ASRForConditionalGeneration:
-    """Load the model with only the audio tower and projector left trainable."""
     model = Qwen3ASRForConditionalGeneration.from_pretrained(
         model_id,
         cache_dir=cache_dir,
@@ -215,8 +211,7 @@ def train(config: dict[str, Any], fold: int) -> None:
                 batch_size=validation_config["wer_batch_size"],
                 max_new_tokens=validation_config["wer_max_new_tokens"],
                 # Seed, fold and count fully determine the audio, so they are the
-                # cache key. Rerunning a probe reuses the scenes instead of
-                # spending minutes rendering identical ones.
+                # cache key.
                 scene_cache=Path(cache_dir)
                 / (
                     f"val-scenes-fold{fold}"

@@ -18,7 +18,6 @@ def transcribe_batch(
     device: Any,
     model_dtype: Any,
 ) -> list[str]:
-    """Greedily transcribe one batch and return only generated transcript text."""
     processor_inputs = processor.apply_transcription_request(
         audio=[scene["audio"] for scene in scenes],
         language=language,

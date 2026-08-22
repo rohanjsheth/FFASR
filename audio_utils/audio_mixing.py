@@ -1,21 +1,3 @@
-# Audio simulation utilities.
-#
-# Assumptions / caveats:
-# - Waveforms are floating-point arrays and RIRs have already been resampled to `sr`.
-# - `distance` is source-to-receiver direct-path length in meters; direct arrival is
-#   estimated using c = 343 m/s and refined by a local peak search.
-# - Trimming each RIR near its direct arrival removes most absolute propagation delay,
-#   so relative source-to-microphone delays are not preserved between sources.
-# - DRR uses a 2.5 ms total direct-path window; DRR values depend on this convention.
-# - The speech-activity mask (25 ms frames, 1% of peak frame energy) is a heuristic
-#   used for SNR measurement and may not exactly match the benchmark's implementation.
-# - Continuous noise is tiled when too short, which can create periodic repetition.
-# - RMS normalization should only be used before scene-level SNR scaling; do not
-#   independently normalize speech/noise after setting the target SNR.
-# - Anti-clipping is applied as one shared gain to mixture, speech, and noise so SNR
-#   is preserved.
-
-
 import numpy as np
 from scipy.signal import fftconvolve
 

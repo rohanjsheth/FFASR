@@ -1,9 +1,3 @@
-# Shared type vocabulary and the per-source data types for one scene.
-#
-# These classes are plain data holders; all DSP stays in audio_mixing.
-# eq=False throughout: a generated __eq__ would compare the array fields
-# elementwise and raise "truth value is ambiguous" instead of returning a bool.
-
 from dataclasses import dataclass
 
 import numpy as np

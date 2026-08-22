@@ -14,11 +14,6 @@ if TYPE_CHECKING:
 
 
 def punctuation_token_ids(tokenizer: PreTrainedTokenizerBase) -> Tensor:
-    """Ids of every token that decodes to punctuation and nothing else.
-
-    Whisper's normalizer deletes these before WER is computed, so supervising
-    them spends gradient the metric cannot see.
-    """
     special = set(tokenizer.all_special_ids)
     ids = [
         token_id

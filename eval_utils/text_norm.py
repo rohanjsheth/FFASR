@@ -1,11 +1,3 @@
-"""WER text normalization, shared by the offline eval and the training callback.
-
-Whisper's EnglishTextNormalizer is the reference implementation the ASR field
-scores against. transformers requires the British-to-American spelling map to be
-passed in and does not ship it, so it is vendored beside this module -- passing
-an empty dict silently disables that step.
-"""
-
 import json
 from functools import lru_cache
 from pathlib import Path

@@ -35,7 +35,6 @@ class SceneRecipe:
     rng_seed: int
 
 def read_audio(audio_record: dict[str, Any] | str) -> tuple[FloatArray, int]:
-    """Read either embedded audio bytes or a local/remote audio path."""
     if isinstance(audio_record, dict) and audio_record.get("bytes") is not None:
         return sf.read(io.BytesIO(audio_record["bytes"]), dtype="float64")
 
@@ -47,7 +46,6 @@ def read_audio(audio_record: dict[str, Any] | str) -> tuple[FloatArray, int]:
         return sf.read(audio_file, dtype="float64")
 
 def audio_duration_seconds(audio_record: dict[str, Any] | str) -> float:
-    """Duration from the audio header, without decoding samples."""
     if isinstance(audio_record, dict) and audio_record.get("bytes") is not None:
         info = sf.info(io.BytesIO(audio_record["bytes"]))
     else:
@@ -58,7 +56,6 @@ def audio_duration_seconds(audio_record: dict[str, Any] | str) -> float:
     return info.frames / info.samplerate
 
 def resample(audio: FloatArray, input_sr: int, global_sr : int) -> FloatArray:
-    """Resample one waveform to the scene sample rate."""
     if input_sr == global_sr:
         return audio
     return resample_poly(audio, global_sr, input_sr)
