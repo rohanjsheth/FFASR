@@ -101,6 +101,14 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
             "use all ten rooms, which is what a pretrained baseline wants."
         ),
     )
+    parser.add_argument(
+        "--speech-parquet",
+        default=LIBRISPEECH_TEST_CLEAN_PARQUET,
+        help=(
+            "Speech source. Needs `audio`, `id` and `text` columns; "
+            "scripts/ingest_voxpopuli.py writes exactly those."
+        ),
+    )
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--cache-dir", type=Path, default=Path(".hf_cache"))
     parser.add_argument("--output-dir", type=Path, default=Path("results/snr_wer"))
@@ -287,7 +295,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     print("Loading full map-style evaluation datasets...")
     speech_ds = load_dataset(
         "parquet",
-        data_files=LIBRISPEECH_TEST_CLEAN_PARQUET,
+        data_files=args.speech_parquet,
         split="train",
         cache_dir=cache_dir,
     ).cast_column("audio", Audio(decode=False))
@@ -470,6 +478,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     summary = {
         "model_id": args.model_id,
+        "speech_parquet": args.speech_parquet,
         "seed": args.seed,
         "samples_per_band": args.samples_per_band,
         "number_of_noises": args.number_of_noises,
