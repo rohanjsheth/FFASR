@@ -11,7 +11,7 @@ load_dtype = "float32"
 # strands the decoder in a token space its language prior barely covers.
 # Load the split's parquet shards directly. The "clean" config pulls every clean
 # split (train.clean.360 included) — 250 hours downloaded to use 54.
-speech_train_parquet = "hf://datasets/mythicinfinity/libritts/data/train.clean.100/*.parquet"
+speech_train_parquet = "hf://datasets/mythicinfinity/libritts/data/train.clean.360/*.parquet"
 speech_validation_parquet = "hf://datasets/mythicinfinity/libritts/data/dev.clean/*.parquet"
 text_column = "text_normalized"
 # Reverb tails run to ~1s, and noise offsets are drawn up to 3000 ms, so clips
@@ -71,9 +71,9 @@ eval_strategy = "steps"
 # every eval, but can only load a step that was also saved -- if the best lands on
 # an unsaved step it sets best_model_checkpoint to None, silently keeps the final
 # state, and logs no warning.
-eval_steps = 50
+eval_steps = 150
 save_strategy = "steps"
-save_steps = 50
+save_steps = 150
 save_total_limit = 3
 load_best_model_at_end = true
 # Selecting on loss picked the worst checkpoints for a whole campaign, because
