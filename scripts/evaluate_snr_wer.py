@@ -102,6 +102,15 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--rir-parquet",
+        default=TREBLE_MONO_PARQUET,
+        help=(
+            "RIR source. Needs `audio`, `Room`, `Receiver Label` and "
+            "`Direct Path Length [m]`; scripts/ingest_mit_rir.py writes those "
+            "for real measured responses."
+        ),
+    )
+    parser.add_argument(
         "--speech-parquet",
         default=LIBRISPEECH_TEST_CLEAN_PARQUET,
         help=(
@@ -306,7 +315,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     ).cast_column("audio", Audio(decode=False))
     rir_ds = load_dataset(
         "parquet",
-        data_files=TREBLE_MONO_PARQUET,
+        data_files=args.rir_parquet,
         split="train",
         cache_dir=cache_dir,
     ).cast_column("audio", Audio(decode=False))
@@ -479,6 +488,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     summary = {
         "model_id": args.model_id,
         "speech_parquet": args.speech_parquet,
+        "rir_parquet": args.rir_parquet,
         "seed": args.seed,
         "samples_per_band": args.samples_per_band,
         "number_of_noises": args.number_of_noises,
