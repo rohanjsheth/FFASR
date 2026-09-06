@@ -29,9 +29,32 @@ from scripts.evaluate_snr_wer import (
 from scripts.noise_eval_io import sha256, wav_bytes, write_parquet
 
 
+def stratified_indices(
+    rng: np.random.Generator, kinds: Sequence[str], number_of_noises: int,
+) -> tuple[int, ...]:
+    """Guarantee one continuous and one transient source, as FFASR scenes do.
+
+    The official methodology states every scene carries both a transient and a
+    continuous interferer. A uniform draw only lands on one of each about half
+    the time, which leaves a third of scenes with no steady masker at all. The
+    remaining slots stay uniform, and the result is permuted so that kind is not
+    correlated with the pre-roll offset assigned to each slot.
+    """
+    labels = np.asarray(kinds)
+    pools = {kind: np.flatnonzero(labels == kind) for kind in ("continuous", "transient")}
+    for kind, pool in pools.items():
+        if not pool.size:
+            raise ValueError(f"Stratified pairing needs at least one {kind} stem")
+    chosen = [int(rng.choice(pool)) for pool in pools.values()]
+    if number_of_noises > 2:
+        remaining = np.setdiff1d(np.arange(labels.size), chosen)
+        chosen += [int(i) for i in rng.choice(remaining, number_of_noises - 2, replace=False)]
+    return tuple(int(i) for i in rng.permutation(chosen))
+
+
 def paired_recipes(
     speech_index: int, groups: Any, noise_sizes: dict[str, int], seed: int,
-    number_of_noises: int,
+    number_of_noises: int, noise_kinds: dict[str, Sequence[str]] | None = None,
 ) -> dict[str, SceneRecipe]:
     # A fixed-size index-only pool keeps the original sampler's RNG consumption
     # independent of the real noise corpus. Do not change the training sampler.
@@ -45,7 +68,11 @@ def paired_recipes(
         if size < number_of_noises:
             raise ValueError(f"{name} has fewer than {number_of_noises} noise records")
         noise_rng = np.random.default_rng(np.random.SeedSequence([seed, speech_index, 1]))
-        indices = tuple(int(i) for i in noise_rng.choice(size, number_of_noises, replace=False))
+        kinds = None if noise_kinds is None else noise_kinds.get(name)
+        if kinds is None:
+            indices = tuple(int(i) for i in noise_rng.choice(size, number_of_noises, replace=False))
+        else:
+            indices = stratified_indices(noise_rng, kinds, number_of_noises)
         recipes[name] = replace(base, noise_indices=indices)
     return recipes
 
@@ -103,6 +130,14 @@ def iter_scenes(
     args: argparse.Namespace, provenance: dict[str, Any],
 ) -> Iterator[dict[str, Any]]:
     groups = get_groups(rir_ds)
+    # Only corpora that label their stems can be stratified; MUSAN carries no
+    # transient/continuous annotation and keeps its uniform draw either way.
+    noise_kinds = None
+    if args.stratify_noise_kinds:
+        noise_kinds = {name: ds["noise_kind"] for name, ds in noises.items()
+                       if "noise_kind" in ds.column_names}
+        if not noise_kinds:
+            raise ValueError("--stratify-noise-kinds needs a corpus with a noise_kind column")
     selection = np.random.default_rng(args.seed).choice(
         len(speech_ds), args.samples_per_band, replace=False,
     )
@@ -135,7 +170,7 @@ def iter_scenes(
     for position, raw_index in enumerate(selection, start=1):
         index = int(raw_index)
         recipes = paired_recipes(index, groups, {k: len(v) for k, v in noises.items()},
-                                 args.seed, args.number_of_noises)
+                                 args.seed, args.number_of_noises, noise_kinds)
         require_unlooped_stems(recipes["aid"], speech_ds, noises["aid"], rir_ds, args.sample_rate)
         yield record(index, "none", "clean", render_clean_scene(index, speech_ds, args.sample_rate))
         for band_index, band in enumerate(BAND_ORDER, start=1):
@@ -158,6 +193,11 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--fold", type=int, choices=tuple(FOLDS))
     parser.add_argument("--samples-per-band", type=int, default=500)
     parser.add_argument("--number-of-noises", type=int, choices=(1, 2, 3), default=2)
+    parser.add_argument(
+        "--stratify-noise-kinds", action="store_true",
+        help="Force one continuous and one transient source per scene in every "
+             "labelled corpus, matching FFASR's stated scene composition.",
+    )
     parser.add_argument("--sample-rate", type=int, default=16_000)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--max-render-attempts", type=int, default=20)
@@ -172,6 +212,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         parser.error("counts/sample-rate must be positive and seed nonnegative")
     if not np.isfinite(args.snr_tolerance_db) or args.snr_tolerance_db < 0:
         parser.error("snr-tolerance-db must be finite and nonnegative")
+    if args.stratify_noise_kinds and args.number_of_noises < 2:
+        parser.error("stratify-noise-kinds needs at least two noise sources per scene")
     return args
 
 
