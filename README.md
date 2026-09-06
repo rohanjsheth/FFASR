@@ -68,6 +68,59 @@ summary under `results/snr_wer/`.
 See [Evaluation baselines](docs/evaluation.md) for the recorded pretrained
 Qwen3-ASR results, the FFASR comparison, and the next validation gate.
 
+## Paired MUSAN/AID evaluation
+
+Noise assembly belongs in preparation scripts, not in the DSP renderer.
+`scripts.prepare_aid_noise` turns extracted AID events into ordinary dry mono
+stems. It uses one microphone, balances stems across filename categories, adds
+random gaps between transient events, and crossfades continuous recordings.
+It records source hashes and event placements; it does not apply RIRs or SNR
+scaling. These are controlled assembly choices, not a reproduction of FFASR's
+private scene generator.
+
+Download and extract the official [AID archive](https://zenodo.org/records/6974033).
+**License discrepancy:** Zenodo's metadata says CC BY 4.0, but the archive's
+`AID/LICENSE` says **CC BY-NC-SA 4.0**. Generated records preserve the restrictive
+archive notice. Do not assume commercial-use or redistribution clearance.
+
+Prepare stems and a frozen paired corpus on CPU:
+
+```bash
+python -m scripts.prepare_aid_noise \
+  --input-dir path/to/AID --count 132 --duration-seconds 60 \
+  --output data/aid_noise.parquet
+python -m scripts.prepare_noise_eval \
+  --aid-noise-parquet data/aid_noise.parquet --samples-per-band 500 \
+  --output data/noise_eval.parquet
+python -m scripts.audit_noise_eval \
+  --input data/noise_eval.parquet --report results/noise_eval/audit.json
+```
+
+The 500 utterances produce 3,500 scenes: one clean condition and six noisy
+conditions (two noise corpora times three SNR bands). Non-noise recipe fields
+are identical between noise corpora. Target-SNR retries are joint, with a
+default maximum realized-SNR difference of 0.25 dB. Identical target SNRs need
+not yield identical final SNRs: the cross-term between each environmental noise
+and the fixed pink-noise waveform differs. The audit reports the observed gap.
+Preparation rejects AID
+stems too short for the existing mixer's offset, pre-roll and speech tail;
+increase stem duration rather than modifying DSP looping. `--speech-parquet`,
+`--rir-parquet`, `--musan-noise-parquet`, and `--fold` select alternative inputs.
+
+On a **remote CUDA machine**, score the same frozen corpus with each checkpoint
+and the same decoding settings, using a separate output directory per model:
+
+```bash
+python -m scripts.evaluate_snr_wer \
+  --rendered-parquet data/noise_eval.parquet \
+  --model-id Qwen/Qwen3-ASR-1.7B-hf --output-dir results/noise_eval/stock
+```
+
+The frozen path verifies WAV hashes and sampling rates and never resamples or
+renders. Live-rendering speech/RIR/seed/sample-count options do not apply to it.
+Predictions retain audio hashes, noise IDs, recipes and per-utterance errors.
+No training configuration, DSP primitive, or training-time sampler is changed.
+
 ## Simulation process
 
 ### Inputs and notation

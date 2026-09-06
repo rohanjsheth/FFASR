@@ -84,6 +84,15 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         )
     )
     parser.add_argument("--model-id", default=DEFAULT_MODEL_ID)
+    parser.add_argument(
+        "--rendered-parquet",
+        help=("Score frozen audio from scripts.prepare_noise_eval without resampling "
+              "or rendering. Speech/RIR/seed/sample-count options do not apply."),
+    )
+    parser.add_argument(
+        "--noise-parquet",
+        help="Optional dry-noise parquet for live rendering; defaults to MUSAN.",
+    )
     parser.add_argument("--language", default="English")
     parser.add_argument("--sample-rate", type=int, default=16_000)
     parser.add_argument("--samples-per-band", type=int, default=2000)
@@ -275,6 +284,132 @@ def print_report(scores: dict[str, WERAccumulator]) -> None:
         )
 
 
+def load_model(args: argparse.Namespace) -> tuple[Any, Any, Any, Any]:
+    import torch
+    from transformers import AutoProcessor, Qwen3ASRForConditionalGeneration
+
+    if not torch.cuda.is_available():
+        raise RuntimeError("SNR-band WER evaluation currently requires a CUDA GPU")
+    print(f"Loading processor and model {args.model_id!r}...")
+    processor = AutoProcessor.from_pretrained(args.model_id, cache_dir=str(args.cache_dir))
+    if int(processor.feature_extractor.sampling_rate) != args.sample_rate:
+        raise ValueError("Scene rate does not match processor rate")
+    device = torch.device("cuda")
+    model_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+    model = Qwen3ASRForConditionalGeneration.from_pretrained(
+        args.model_id, cache_dir=str(args.cache_dir), dtype=model_dtype,
+        low_cpu_mem_usage=True,
+    ).to(device)
+    model.eval()
+    print(f"CUDA device: {torch.cuda.get_device_name(device)}, dtype={model_dtype}, "
+          f"batch_size={args.batch_size}")
+    return model, processor, device, model_dtype
+
+
+def frozen_batch_scenes(rows: Sequence[dict[str, Any]], sample_rate: int) -> list[RenderedScene]:
+    import io
+
+    import numpy as np
+    import soundfile as sf
+
+    from scripts.noise_eval_io import sha256
+
+    scenes = []
+    for row in rows:
+        encoded = row["audio"]["bytes"]
+        if sha256(encoded) != row["sha256"]:
+            raise ValueError(f"Audio checksum mismatch for {row['id']}")
+        audio, rate = sf.read(io.BytesIO(encoded), dtype="float64")
+        if rate != sample_rate or row["sample_rate"] != sample_rate:
+            raise ValueError(f"Frozen audio rate mismatch for {row['id']}; no resampling allowed")
+        if audio.ndim != 1 or not audio.size or not np.isfinite(audio).all():
+            raise ValueError(f"Invalid frozen audio for {row['id']}")
+        scenes.append({"audio": audio, "text": row["text"],
+                       "metadata": json.loads(row["metadata_json"])})
+    return scenes
+
+
+def score_frozen_batch(
+    rows: Sequence[dict[str, Any]], hypotheses: Sequence[str],
+    scores: dict[str, WERAccumulator],
+) -> list[dict[str, Any]]:
+    records = []
+    for row, hypothesis in zip(rows, hypotheses, strict=True):
+        condition = row["condition"]
+        key = "clean" if condition == "clean" else f"{row['noise_source']}/{condition}"
+        metadata = json.loads(row["metadata_json"])
+        snr = None if condition == "clean" else float(metadata["final_snr_db"])
+        accumulator = scores.setdefault(key, WERAccumulator())
+        errors, words, reference, normalized = accumulator.add(row["text"], hypothesis, snr)
+        records.append({
+            "id": row["id"], "speech_id": row["speech_id"],
+            "speech_index": row["speech_index"], "condition": key,
+            "audio_sha256": row["sha256"], "reference": row["text"],
+            "hypothesis": hypothesis, "normalized_reference": reference,
+            "normalized_hypothesis": normalized, "word_errors": errors,
+            "reference_words": words, "final_snr_db": snr,
+            "recipe": json.loads(row["recipe_json"]), "metadata": metadata,
+            "noise_records": json.loads(row["noise_records_json"]),
+        })
+    return records
+
+
+def evaluate_frozen(args: argparse.Namespace) -> int:
+    from datasets import load_dataset
+
+    if args.noise_parquet is not None:
+        raise ValueError("--noise-parquet cannot be combined with --rendered-parquet")
+    predictions_path = args.output_dir / "predictions.jsonl"
+    summary_path = args.output_dir / "summary.json"
+    if predictions_path.exists() or summary_path.exists():
+        raise FileExistsError(f"Choose a fresh --output-dir: {args.output_dir}")
+    dataset = load_dataset("parquet", data_files=args.rendered_parquet, split="train",
+                           cache_dir=str(args.cache_dir))
+    required = {"id", "speech_id", "speech_index", "audio", "text", "condition", "noise_source",
+                "sha256", "sample_rate", "metadata_json", "recipe_json", "noise_records_json",
+                "experiment_json"}
+    if required - set(dataset.column_names) or not len(dataset):
+        raise ValueError("Expected nonempty output from scripts.prepare_noise_eval")
+    if set(dataset["sample_rate"]) != {args.sample_rate}:
+        raise ValueError("Frozen corpus sample rate does not match --sample-rate")
+    if not set(dataset["condition"]) <= {"clean", *BAND_ORDER}:
+        raise ValueError("Unknown frozen condition")
+    if len(set(dataset["id"])) != len(dataset):
+        raise ValueError("Duplicate frozen scene IDs")
+    print(f"Scoring {len(dataset)} frozen scenes; live-rendering options are ignored")
+    model, processor, device, model_dtype = load_model(args)
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    scores: dict[str, WERAccumulator] = {}
+    with predictions_path.open("x", encoding="utf-8") as output:
+        for start in range(0, len(dataset), args.batch_size):
+            rows = [dataset[i] for i in range(start, min(start + args.batch_size, len(dataset)))]
+            scenes = frozen_batch_scenes(rows, args.sample_rate)
+            hypotheses = transcribe_batch(
+                model=model, processor=processor, scenes=scenes, language=args.language,
+                sample_rate=args.sample_rate, max_new_tokens=args.max_new_tokens,
+                device=device, model_dtype=model_dtype,
+            )
+            for record in score_frozen_batch(rows, hypotheses, scores):
+                output.write(json.dumps(record, ensure_ascii=False) + "\n")
+            output.flush()
+            print(f"Scored {start + len(rows)}/{len(dataset)} frozen scenes", flush=True)
+    summary = {
+        "model_id": args.model_id, "rendered_parquet": args.rendered_parquet,
+        "dataset_fingerprint": dataset._fingerprint, "sample_rate": args.sample_rate,
+        "language": args.language, "batch_size": args.batch_size,
+        "max_new_tokens": args.max_new_tokens,
+        "experiment": json.loads(dataset[0]["experiment_json"]),
+        "normalization": "whisper EnglishTextNormalizer (with english spelling map)",
+        "conditions": {name: score_summary(score) for name, score in sorted(scores.items())},
+    }
+    with summary_path.open("x", encoding="utf-8") as output:
+        output.write(json.dumps(summary, indent=2, ensure_ascii=False) + "\n")
+    for name, score in sorted(scores.items()):
+        print(f"{name}: {score.examples} examples, WER={100 * score.wer:.2f}%")
+    print(f"Wrote {predictions_path} and {summary_path}")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     if args.samples_per_band <= 0:
@@ -285,11 +420,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         raise ValueError("--max-new-tokens must be positive")
     if args.max_render_attempts <= 0:
         raise ValueError("--max-render-attempts must be positive")
+    if args.rendered_parquet is not None:
+        return evaluate_frozen(args)
 
     import numpy as np
     import torch
     from datasets import Audio, load_dataset
-    from transformers import AutoProcessor, Qwen3ASRForConditionalGeneration
 
     from data_utils.data_utils import (
         get_groups,
@@ -308,10 +444,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         split="train",
         cache_dir=cache_dir,
     ).cast_column("audio", Audio(decode=False))
-    noise_ds = load_dataset(
-        "bilguun/musan-noise",
-        split="train",
-        cache_dir=cache_dir,
+    noise_ds = (
+        load_dataset("parquet", data_files=args.noise_parquet, split="train", cache_dir=cache_dir)
+        if args.noise_parquet else
+        load_dataset("bilguun/musan-noise", split="train", cache_dir=cache_dir)
     ).cast_column("audio", Audio(decode=False))
     rir_ds = load_dataset(
         "parquet",
@@ -354,28 +490,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
     ]
 
-    print(f"Loading processor and model {args.model_id!r}...")
-    processor = AutoProcessor.from_pretrained(args.model_id, cache_dir=cache_dir)
-    processor_sample_rate = int(processor.feature_extractor.sampling_rate)
-    if processor_sample_rate != args.sample_rate:
-        raise ValueError(
-            f"Scene rate {args.sample_rate} does not match processor rate "
-            f"{processor_sample_rate}"
-        )
-
-    device = torch.device("cuda")
-    model_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
-    model = Qwen3ASRForConditionalGeneration.from_pretrained(
-        args.model_id,
-        cache_dir=cache_dir,
-        dtype=model_dtype,
-        low_cpu_mem_usage=True,
-    ).to(device)
-    model.eval()
-    print(
-        f"CUDA device: {torch.cuda.get_device_name(device)}, dtype={model_dtype}, "
-        f"batch_size={args.batch_size}"
-    )
+    model, processor, device, model_dtype = load_model(args)
 
     scores = {
         condition: WERAccumulator()
@@ -489,6 +604,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "model_id": args.model_id,
         "speech_parquet": args.speech_parquet,
         "rir_parquet": args.rir_parquet,
+        "noise_source": args.noise_parquet or "bilguun/musan-noise",
         "seed": args.seed,
         "samples_per_band": args.samples_per_band,
         "number_of_noises": args.number_of_noises,
