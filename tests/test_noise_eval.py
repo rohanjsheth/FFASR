@@ -202,9 +202,13 @@ def test_full_offline_preparation_and_frozen_scoring(tmp_path: Path, monkeypatch
 
     def transcribe(**kwargs):
         seen.extend(scene["audio"].copy() for scene in kwargs["scenes"])
-        return [scene["text"] for scene in kwargs["scenes"]]
+        return [
+            {"hypothesis": scene["text"], "tokens": 1, "avg_logprob": -0.1,
+             "min_logprob": -0.2, "mean_entropy": 0.3, "max_entropy": 0.4}
+            for scene in kwargs["scenes"]
+        ]
 
-    monkeypatch.setattr(evaluate, "transcribe_batch", transcribe)
+    monkeypatch.setattr(evaluate, "transcribe_with_scores", transcribe)
     for model in ("stock", "tiro"):
         assert evaluate.main(["--rendered-parquet", str(corpus), "--model-id", model,
                               "--sample-rate", str(SR), "--batch-size", "3",

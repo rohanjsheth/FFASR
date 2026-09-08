@@ -15,8 +15,6 @@ from transformers import (
 from eval_utils.text_norm import edit_distance, normalize_for_wer
 from eval_utils.transcribe import transcribe_batch
 
-# Same definitions the offline eval uses, so the two are directly comparable.
-# Validation SNR is drawn uniform(-8, 24), so the 6-8 and 12-14 gaps land in "other".
 BANDS: dict[str, tuple[float, float]] = {
     "low": (-float("inf"), 6.0),
     "mid": (8.0, 12.0),
@@ -131,14 +129,20 @@ class BandWERCallback(TrainerCallback):
 
         errors: dict[str, int] = {}
         words: dict[str, int] = {}
+        scored = catastrophic = punctuated = hypothesis_words = 0
         for band, scene, hypothesis in zip(self._bands, self._scenes, hypotheses, strict=True):
             reference = normalize_for_wer(scene["text"]).split()
             if not reference:
                 continue
-            distance = edit_distance(reference, normalize_for_wer(hypothesis).split())
+            hypothesis_tokens = normalize_for_wer(hypothesis).split()
+            distance = edit_distance(reference, hypothesis_tokens)
             for key in (band, "all"):
                 errors[key] = errors.get(key, 0) + distance
                 words[key] = words.get(key, 0) + len(reference)
+            scored += 1
+            catastrophic += distance > len(reference)
+            punctuated += any(c in ".,?!;:" for c in hypothesis)
+            hypothesis_words += len(hypothesis_tokens)
 
         if output_dir is not None:
             self._dump(output_dir, step, hypotheses)
@@ -150,6 +154,18 @@ class BandWERCallback(TrainerCallback):
                 print(f"  {key:<6} n={words[key]:>6} words  WER={wer:6.2f}%")
                 if metrics is not None:
                     metrics[f"eval_wer_{key}"] = wer
+
+        # Drift the Whisper normalizer hides from WER.
+        rates = {
+            "eval_catastrophic_rate": catastrophic / scored,
+            "eval_punctuation_rate": punctuated / scored,
+            "eval_length_ratio": hypothesis_words / words["all"],
+        }
+        print(f"  catastrophic {catastrophic}/{scored}  "
+              f"punct {100 * rates['eval_punctuation_rate']:.0f}%  "
+              f"len/ref {rates['eval_length_ratio']:.3f}")
+        if metrics is not None:
+            metrics.update(rates)
 
     def _dump(self, output_dir: str, step: int, hypotheses: list[str]) -> None:
         """Keep every transcript, so a WER change can be traced to what changed.
@@ -183,12 +199,6 @@ def _load_or_render(
     num_examples: int,
     cache_path: Path | None,
 ) -> list[Any]:
-    """Render the validation scenes, reusing a cached copy when one exists.
-
-    Rendering is deterministic given the dataset's seed, so a cache hit returns
-    byte-identical audio. The caller owns invalidation by putting the seed, fold
-    and example count in the filename.
-    """
     if cache_path is not None and cache_path.exists():
         blob = np.load(cache_path, allow_pickle=False)
         records = json.loads(str(blob["meta"]))

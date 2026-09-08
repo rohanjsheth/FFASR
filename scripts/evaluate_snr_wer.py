@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any
 
 from data_utils.room_folds import FOLDS
 from eval_utils.text_norm import edit_distance, normalize_for_wer
-from eval_utils.transcribe import transcribe_batch
+from eval_utils.transcribe import transcribe_batch, transcribe_with_scores
 
 if TYPE_CHECKING:
     import numpy as np
@@ -46,6 +46,11 @@ class WERAccumulator:
     word_errors: int = 0
     reference_words: int = 0
     snr_values: list[float] = field(default_factory=list)
+    # Drift the Whisper normalizer hides from WER.
+    catastrophic: int = 0
+    with_punctuation: int = 0
+    hypothesis_words: int = 0
+    entropy_sum: float = 0.0
 
     @property
     def wer(self) -> float:
@@ -58,6 +63,7 @@ class WERAccumulator:
         reference: str,
         hypothesis: str,
         snr_db: float | None,
+        mean_entropy: float = 0.0,
     ) -> tuple[int, int, str, str]:
         normalized_reference = normalize_for_wer(reference)
         normalized_hypothesis = normalize_for_wer(hypothesis)
@@ -72,6 +78,10 @@ class WERAccumulator:
         self.reference_words += len(reference_tokens)
         if snr_db is not None:
             self.snr_values.append(snr_db)
+        self.catastrophic += errors > len(reference_tokens)
+        self.with_punctuation += any(character in ".,?!;:" for character in hypothesis)
+        self.hypothesis_words += len(hypothesis_tokens)
+        self.entropy_sum += mean_entropy
 
         return errors, len(reference_tokens), normalized_reference, normalized_hypothesis
 
@@ -253,6 +263,11 @@ def score_summary(score: WERAccumulator) -> dict[str, Any]:
         "reference_words": score.reference_words,
         "wer": score.wer,
     }
+    summary["catastrophic"] = score.catastrophic
+    summary["catastrophic_rate"] = score.catastrophic / score.examples
+    summary["punctuation_rate"] = score.with_punctuation / score.examples
+    summary["length_ratio"] = score.hypothesis_words / score.reference_words
+    summary["mean_entropy"] = score.entropy_sum / score.examples
     if score.snr_values:
         summary["realized_snr_db"] = {
             "mean": sum(score.snr_values) / len(score.snr_values),
@@ -330,17 +345,20 @@ def frozen_batch_scenes(rows: Sequence[dict[str, Any]], sample_rate: int) -> lis
 
 
 def score_frozen_batch(
-    rows: Sequence[dict[str, Any]], hypotheses: Sequence[str],
+    rows: Sequence[dict[str, Any]], scored: Sequence[dict[str, Any]],
     scores: dict[str, WERAccumulator],
 ) -> list[dict[str, Any]]:
     records = []
-    for row, hypothesis in zip(rows, hypotheses, strict=True):
+    for row, result in zip(rows, scored, strict=True):
+        hypothesis = result["hypothesis"]
         condition = row["condition"]
         key = "clean" if condition == "clean" else f"{row['noise_source']}/{condition}"
         metadata = json.loads(row["metadata_json"])
         snr = None if condition == "clean" else float(metadata["final_snr_db"])
         accumulator = scores.setdefault(key, WERAccumulator())
-        errors, words, reference, normalized = accumulator.add(row["text"], hypothesis, snr)
+        errors, words, reference, normalized = accumulator.add(
+            row["text"], hypothesis, snr, result["mean_entropy"]
+        )
         records.append({
             "id": row["id"], "speech_id": row["speech_id"],
             "speech_index": row["speech_index"], "condition": key,
@@ -350,6 +368,8 @@ def score_frozen_batch(
             "reference_words": words, "final_snr_db": snr,
             "recipe": json.loads(row["recipe_json"]), "metadata": metadata,
             "noise_records": json.loads(row["noise_records_json"]),
+            **{key: result[key] for key in
+               ("tokens", "avg_logprob", "min_logprob", "mean_entropy", "max_entropy")},
         })
     return records
 
@@ -384,12 +404,12 @@ def evaluate_frozen(args: argparse.Namespace) -> int:
         for start in range(0, len(dataset), args.batch_size):
             rows = [dataset[i] for i in range(start, min(start + args.batch_size, len(dataset)))]
             scenes = frozen_batch_scenes(rows, args.sample_rate)
-            hypotheses = transcribe_batch(
+            scored = transcribe_with_scores(
                 model=model, processor=processor, scenes=scenes, language=args.language,
                 sample_rate=args.sample_rate, max_new_tokens=args.max_new_tokens,
                 device=device, model_dtype=model_dtype,
             )
-            for record in score_frozen_batch(rows, hypotheses, scores):
+            for record in score_frozen_batch(rows, scored, scores):
                 output.write(json.dumps(record, ensure_ascii=False) + "\n")
             output.flush()
             print(f"Scored {start + len(rows)}/{len(dataset)} frozen scenes", flush=True)
@@ -405,7 +425,10 @@ def evaluate_frozen(args: argparse.Namespace) -> int:
     with summary_path.open("x", encoding="utf-8") as output:
         output.write(json.dumps(summary, indent=2, ensure_ascii=False) + "\n")
     for name, score in sorted(scores.items()):
-        print(f"{name}: {score.examples} examples, WER={100 * score.wer:.2f}%")
+        print(f"{name}: {score.examples} examples, WER={100 * score.wer:.2f}%, "
+              f"catastrophic={score.catastrophic}, "
+              f"punct={100 * score.with_punctuation / score.examples:.0f}%, "
+              f"len/ref={score.hypothesis_words / score.reference_words:.3f}")
     print(f"Wrote {predictions_path} and {summary_path}")
     return 0
 

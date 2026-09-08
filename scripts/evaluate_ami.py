@@ -23,7 +23,7 @@ from pathlib import Path
 from typing import Any
 
 from eval_utils.text_norm import edit_distance, normalize_for_wer
-from eval_utils.transcribe import transcribe_batch
+from eval_utils.transcribe import transcribe_with_scores
 
 DEFAULT_MODEL_ID = "Qwen/Qwen3-ASR-1.7B-hf"
 REQUIRED_COLUMNS = frozenset(
@@ -44,7 +44,10 @@ class WERAccumulator:
     word_errors: int = 0
     reference_words: int = 0
     audio_seconds: float = 0.0
-    hypotheses_with_punctuation: int = 0
+    catastrophic: int = 0
+    with_punctuation: int = 0
+    hypothesis_words: int = 0
+    entropy_sum: float = 0.0
 
     @property
     def wer(self) -> float:
@@ -52,21 +55,24 @@ class WERAccumulator:
             raise ValueError("Cannot compute WER without reference words")
         return self.word_errors / self.reference_words
 
-    def add(self, reference: str, hypothesis: str, seconds: float) -> tuple[int, int, str, str]:
+    def add(
+        self, reference: str, hypothesis: str, seconds: float, mean_entropy: float = 0.0
+    ) -> tuple[int, int, str, str]:
         normalized_reference = normalize_for_wer(reference)
         normalized_hypothesis = normalize_for_wer(hypothesis)
         reference_tokens = normalized_reference.split()
         if not reference_tokens:
             raise ValueError(f"Reference became empty after normalization: {reference!r}")
-        errors = edit_distance(reference_tokens, normalized_hypothesis.split())
+        hypothesis_tokens = normalized_hypothesis.split()
+        errors = edit_distance(reference_tokens, hypothesis_tokens)
         self.examples += 1
         self.word_errors += errors
         self.reference_words += len(reference_tokens)
         self.audio_seconds += seconds
-        # The Whisper normalizer strips punctuation, so this is the only place a
-        # decoder-side style drift shows up. Tiro emitted it on 549/3500
-        # hypotheses against 3500/3500 for stock on the noise corpus.
-        self.hypotheses_with_punctuation += any(c in hypothesis for c in ".,?!;:")
+        self.catastrophic += errors > len(reference_tokens)
+        self.with_punctuation += any(c in hypothesis for c in ".,?!;:")
+        self.hypothesis_words += len(hypothesis_tokens)
+        self.entropy_sum += mean_entropy
         return errors, len(reference_tokens), normalized_reference, normalized_hypothesis
 
 
@@ -187,24 +193,26 @@ def main(argv: Sequence[str] | None = None) -> int:
     with predictions_path.open("x", encoding="utf-8") as output:
         for start in range(0, len(order), args.batch_size):
             rows = [dataset[i] for i in order[start:start + args.batch_size]]
-            hypotheses = transcribe_batch(
+            scored = transcribe_with_scores(
                 model=model, processor=processor,
                 scenes=batch_scenes(rows, args.sample_rate),
                 language=args.language, sample_rate=args.sample_rate,
                 max_new_tokens=args.max_new_tokens, device=device, model_dtype=model_dtype,
             )
-            for row, hypothesis in zip(rows, hypotheses, strict=True):
+            for row, result in zip(rows, scored, strict=True):
+                hypothesis = result["hypothesis"]
                 microphone = row["microphone"]
                 bucket = overlap_bucket(float(row["overlap_ratio"]))
                 seconds = float(row["duration_seconds"])
+                entropy = result["mean_entropy"]
                 errors, words, reference, normalized = overall.setdefault(
                     microphone, WERAccumulator()
-                ).add(row["text"], hypothesis, seconds)
+                ).add(row["text"], hypothesis, seconds, entropy)
                 by_meeting.setdefault(f"{microphone}/{row['meeting_id']}", WERAccumulator()).add(
-                    row["text"], hypothesis, seconds
+                    row["text"], hypothesis, seconds, entropy
                 )
                 by_overlap.setdefault(f"{microphone}/{bucket}", WERAccumulator()).add(
-                    row["text"], hypothesis, seconds
+                    row["text"], hypothesis, seconds, entropy
                 )
                 output.write(json.dumps({
                     "id": row["id"], "pair_id": row["pair_id"],
@@ -215,6 +223,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                     "reference": row["text"], "hypothesis": hypothesis,
                     "normalized_reference": reference, "normalized_hypothesis": normalized,
                     "word_errors": errors, "reference_words": words,
+                    **{k: result[k] for k in
+                       ("tokens", "avg_logprob", "min_logprob", "mean_entropy", "max_entropy")},
                 }, ensure_ascii=False) + "\n")
             output.flush()
             print(f"Scored {min(start + len(rows), len(order))}/{len(order)}", flush=True)
@@ -222,6 +232,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     report_table("WER by microphone", overall, sorted(overall))
     report_table("WER by cross-talk", by_overlap, sorted(by_overlap))
     report_table("WER by meeting", by_meeting, sorted(by_meeting))
+    print("\nDrift (invisible to WER)")
+    print("mic     catastrophic    punct   len/ref   entropy")
+    for key in sorted(overall):
+        s = overall[key]
+        print(f"{key:<8}{s.catastrophic:>6}/{s.examples:<6}"
+              f"{100 * s.with_punctuation / s.examples:>6.0f}%"
+              f"{s.hypothesis_words / s.reference_words:>9.3f}"
+              f"{s.entropy_sum / s.examples:>10.3f}")
     if len(overall) == 2:
         near, far = sorted(overall)
         print(f"\n{far} minus {near}: "
@@ -233,7 +251,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "examples": score.examples, "word_errors": score.word_errors,
                 "reference_words": score.reference_words, "wer": score.wer,
                 "audio_seconds": score.audio_seconds,
-                "hypotheses_with_punctuation": score.hypotheses_with_punctuation,
+                "catastrophic": score.catastrophic,
+                "catastrophic_rate": score.catastrophic / score.examples,
+                "punctuation_rate": score.with_punctuation / score.examples,
+                "length_ratio": score.hypothesis_words / score.reference_words,
+                "mean_entropy": score.entropy_sum / score.examples,
             }
             for key, score in sorted(scores.items())
         }
