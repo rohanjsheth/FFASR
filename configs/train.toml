@@ -6,12 +6,11 @@ model_id = "Qwen/Qwen3-ASR-1.7B-hf"
 load_dtype = "float32"
 
 [datasets]
-# LibriTTS transcripts are naturally cased and punctuated, matching what the
-# frozen decoder already emits. LibriSpeech's ALL CAPS tokenises ~1.7x longer and
-# strands the decoder in a token space its language prior barely covers.
-# Load the split's parquet shards directly. The "clean" config pulls every clean
-# split (train.clean.360 included) — 250 hours downloaded to use 54.
-speech_train_parquet = "hf://datasets/mythicinfinity/libritts/data/train.clean.360/*.parquet"
+# Transcripts must stay cased and punctuated: LibriSpeech's ALL CAPS tokenises
+# ~1.7x longer and strands the frozen decoder in a token space its prior barely
+# covers. Built on the pod by scripts/build_speech_mix.py. LibriTTS-R replaces LibriTTS
+# (restored audio, same 116k utterances); VCTK adds hemi-anechoic dry speech.
+speech_train_parquet = "/root/data/speech_mix.parquet"
 speech_validation_parquet = "hf://datasets/mythicinfinity/libritts/data/dev.clean/*.parquet"
 text_column = "text_normalized"
 # Reverb tails run to ~1s, and noise offsets are drawn up to 3000 ms, so clips
