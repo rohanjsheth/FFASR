@@ -30,15 +30,15 @@ FEATURES = Features({
 # Source text must be cased and punctuated or it teaches the decoder to drop both.
 SOURCES: dict[str, dict[str, Any]] = {
     "libritts_r": {
-        "repo": "mythicinfinity/libritts_r", "config": "clean", "split": "train.clean.360",
+        "repo": "mythicinfinity/libritts_r", "files": "train.clean.360",
         "text": "text_normalized", "id": "id",
     },
     "vctk": {
-        "repo": "sanchit-gandhi/vctk", "config": None, "split": "train",
+        "repo": "sanchit-gandhi/vctk", "files": "train",
         "text": "text", "id": "text_id",
     },
     "common_voice": {
-        "repo": "mozilla-foundation/common_voice_17_0", "config": "en", "split": "train",
+        "repo": "mozilla-foundation/common_voice_17_0", "files": "en/train",
         "text": "sentence", "id": "path",
     },
 }
@@ -59,6 +59,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--max-duration-seconds", type=float, default=30.0)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--num-proc", type=int, default=16,
+                        help="Worker processes; the parquet shards are split across them.")
     parser.add_argument("--dry-run", action="store_true",
                         help="Report per-source survival against the duration filter, write nothing.")
     parser.add_argument("--dry-run-sample", type=int, default=400)
@@ -85,19 +87,33 @@ def decode(raw: bytes, sample_rate: int) -> tuple[np.ndarray, float]:
     return samples, duration
 
 
-def stream(name: str, cache_dir: Path):
+def shard_files(name: str) -> list[str]:
+    """The split's parquet shards, as hf:// paths."""
+    from huggingface_hub import HfApi
+
     source = SOURCES[name]
+    files = sorted(
+        f for f in HfApi().list_repo_files(source["repo"], repo_type="dataset")
+        if f.endswith(".parquet") and source["files"] in f
+    )
+    if not files:
+        raise ValueError(f"No parquet shards matching {source['files']!r} in {source['repo']}")
+    return [f"hf://datasets/{source['repo']}/{f}" for f in files]
+
+
+def stream(name: str, cache_dir: Path, files: Sequence[str] | None = None):
     return load_dataset(
-        source["repo"], source["config"], split=source["split"],
-        cache_dir=str(cache_dir), streaming=True,
+        "parquet", data_files=list(files) if files else shard_files(name),
+        split="train", cache_dir=str(cache_dir), streaming=True,
     ).cast_column("audio", Audio(decode=False))
 
 
-def iter_rows(args: argparse.Namespace, sources: list[tuple[str, int | None]]) -> Iterator[dict[str, Any]]:
-    for name, cap in sources:
+def iter_rows(args: argparse.Namespace, specs: list[dict[str, Any]]) -> Iterator[dict[str, Any]]:
+    for spec in specs:
+        name, files, cap = spec["name"], spec["files"], spec["cap"]
         source = SOURCES[name]
         kept = seen = skipped_empty = skipped_duration = 0
-        for record in stream(name, args.cache_dir):
+        for record in stream(name, args.cache_dir, files):
             seen += 1
             text = str(record[source["text"]]).strip()
             if not text:
@@ -112,8 +128,6 @@ def iter_rows(args: argparse.Namespace, sources: list[tuple[str, int | None]]) -
                      format="WAV", subtype="FLOAT")
             identifier = f"{name}/{record[source['id']]}"
             kept += 1
-            if kept % 2000 == 0:
-                print(f"  {name}: {kept} kept of {seen} seen", flush=True)
             yield {
                 "audio": {"bytes": buffer.getvalue(), "path": f"{identifier}.wav"},
                 "id": identifier, "text_normalized": text, "domain": name,
@@ -121,8 +135,23 @@ def iter_rows(args: argparse.Namespace, sources: list[tuple[str, int | None]]) -
             }
             if cap is not None and kept >= cap:
                 break
-        print(f"{name}: kept {kept} of {seen} seen "
+        print(f"{name} shard done: kept {kept} of {seen} "
               f"({skipped_empty} empty, {skipped_duration} outside duration range)", flush=True)
+
+
+def build_specs(sources: list[tuple[str, int | None]], num_proc: int) -> list[dict[str, Any]]:
+    """One spec per worker per source, so from_generator can shard the list."""
+    specs = []
+    for name, cap in sources:
+        files = shard_files(name)
+        groups = [files[i::num_proc] for i in range(num_proc)]
+        groups = [g for g in groups if g]
+        # A cap is per worker, so the total stays near what was asked for.
+        per_worker = None if cap is None else max(1, cap // len(groups))
+        specs.extend({"name": name, "files": g, "cap": per_worker} for g in groups)
+        print(f"{name}: {len(files)} shards over {len(groups)} workers"
+              + ("" if cap is None else f", cap {per_worker}/worker"))
+    return specs
 
 
 def dry_run(args: argparse.Namespace, sources: list[tuple[str, int | None]]) -> int:
@@ -157,8 +186,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         raise FileExistsError(args.output)
     args.output.parent.mkdir(parents=True, exist_ok=True)
 
+    specs = build_specs(sources, args.num_proc)
     dataset = Dataset.from_generator(
-        iter_rows, features=FEATURES, gen_kwargs={"args": args, "sources": sources}
+        iter_rows, features=FEATURES, num_proc=min(args.num_proc, len(specs)),
+        gen_kwargs={"args": args, "specs": specs},
     )
     dataset = dataset.shuffle(seed=args.seed)
     dataset.to_parquet(args.output)
