@@ -50,7 +50,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         "--source", action="append", required=True, metavar="NAME[:CAP]",
         help="Repeatable, e.g. --source vctk:40000. CAP is a max utterance count.",
     )
-    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--output", type=Path, help="Required unless --dry-run.")
     parser.add_argument("--cache-dir", type=Path, default=Path(".hf_cache"))
     parser.add_argument("--sample-rate", type=int, default=16_000)
     parser.add_argument(
@@ -130,17 +130,19 @@ def dry_run(args: argparse.Namespace, sources: list[tuple[str, int | None]]) -> 
           f"first {args.dry_run_sample} utterances each:\n")
     for name, _ in sources:
         source = SOURCES[name]
-        durations = []
+        durations, sample_text = [], ""
         for index, record in enumerate(stream(name, args.cache_dir)):
             if index >= args.dry_run_sample:
                 break
+            if not sample_text:
+                sample_text = str(record[source["text"]])[:80]
             _, duration = decode(record["audio"]["bytes"], args.sample_rate)
             durations.append(duration)
         d = np.asarray(durations)
         survive = ((d >= args.min_duration_seconds) & (d <= args.max_duration_seconds)).mean()
         print(f"{name:<14} n={d.size:<5} median {np.median(d):5.2f}s  "
               f"mean {d.mean():5.2f}s  survives {100 * survive:5.1f}%")
-        print(f"{'':<14} sample text: {str(next(iter(stream(name, args.cache_dir)))[source['text']])[:80]!r}")
+        print(f"{'':<14} sample text: {sample_text!r}")
     return 0
 
 
@@ -149,6 +151,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     sources = parse_sources(args.source)
     if args.dry_run:
         return dry_run(args, sources)
+    if args.output is None:
+        raise ValueError("--output is required unless --dry-run")
     if args.output.exists():
         raise FileExistsError(args.output)
     args.output.parent.mkdir(parents=True, exist_ok=True)
