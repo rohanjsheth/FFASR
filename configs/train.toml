@@ -11,7 +11,9 @@ load_dtype = "float32"
 # covers. Built on the pod by scripts/build_speech_mix.py. LibriTTS-R replaces LibriTTS
 # (restored audio, same 116k utterances); VCTK adds hemi-anechoic dry speech.
 speech_train_parquet = "/root/data/speech_mix.parquet"
-speech_validation_parquet = "hf://datasets/mythicinfinity/libritts/data/dev.clean/*.parquet"
+# Held out by build_speech_mix.py across all three domains. Selecting on
+# LibriTTS alone is how a LibriVox-specific gain read as a monotonic win.
+speech_validation_parquet = "/root/data/speech_dev.parquet"
 text_column = "text_normalized"
 # Reverb tails run to ~1s, and noise offsets are drawn up to 3000 ms, so clips
 # shorter than this never express the far-field effect being trained for.
