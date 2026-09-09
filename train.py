@@ -46,6 +46,7 @@ def load_speech_splits(
 ) -> tuple[Dataset, Dataset]:
     text_column = dataset_config["text_column"]
     min_seconds = dataset_config["min_duration_seconds"]
+    max_chars = dataset_config.get("max_transcript_chars", 1000)
 
     def prepare(parquet_pattern: str) -> Dataset:
         speech_ds = load_dataset(
@@ -57,11 +58,14 @@ def load_speech_splits(
         if text_column != "text":
             speech_ds = speech_ds.rename_column(text_column, "text")
         # Header read only, no decode; datasets caches the result.
-        return speech_ds.filter(
-            lambda audio: audio_duration_seconds(audio) >= min_seconds,
-            input_columns="audio",
-            num_proc=8,
-        )
+        # A mangled transcript -- thousands of characters of raw TSV from a bad
+        # manifest parse -- blows the fp32 logits cast. 20 such rows OOM'd a run.
+        def keep(audio: dict[str, Any], text: str) -> bool:
+            if audio_duration_seconds(audio) < min_seconds:
+                return False
+            return len(text) <= max_chars and "\t" not in text and "\n" not in text
+
+        return speech_ds.filter(keep, input_columns=["audio", "text"], num_proc=8)
 
     train_ds = prepare(dataset_config["speech_train_parquet"])
     validation_ds = prepare(dataset_config["speech_validation_parquet"])

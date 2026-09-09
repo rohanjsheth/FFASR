@@ -123,9 +123,12 @@ def tar_records(name: str, cache_dir: Path, files: Sequence[str]) -> Iterator[di
     source = SOURCES[name]
     manifest = hf_hub_download(source["repo"], source["tsv"], repo_type="dataset",
                                cache_dir=str(cache_dir))
+    # quote_char=False: CV sentences contain unbalanced quotes, and with quoting on
+    # pyarrow swallows following lines into one field, yielding 15k-char "transcripts"
+    # made of raw TSV. newlines_in_values must be off for the same reason.
     table = pv.read_csv(
         manifest,
-        parse_options=pv.ParseOptions(delimiter="\t", newlines_in_values=True),
+        parse_options=pv.ParseOptions(delimiter="\t", quote_char=False, newlines_in_values=False),
         convert_options=pv.ConvertOptions(include_columns=[source["id"], source["text"]]),
     )
     sentences = dict(zip(table[source["id"]].to_pylist(), table[source["text"]].to_pylist()))
