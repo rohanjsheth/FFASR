@@ -156,16 +156,17 @@ class BandWERCallback(TrainerCallback):
                     metrics[f"eval_wer_{key}"] = wer
 
         # Drift the Whisper normalizer hides from WER.
-        rates = {
-            "eval_catastrophic_rate": catastrophic / scored,
-            "eval_punctuation_rate": punctuated / scored,
-            "eval_length_ratio": hypothesis_words / words["all"],
-        }
-        print(f"  catastrophic {catastrophic}/{scored}  "
-              f"punct {100 * rates['eval_punctuation_rate']:.0f}%  "
-              f"len/ref {rates['eval_length_ratio']:.3f}")
-        if metrics is not None:
-            metrics.update(rates)
+        if scored and words.get("all"):
+            rates = {
+                "eval_catastrophic_rate": catastrophic / scored,
+                "eval_punctuation_rate": punctuated / scored,
+                "eval_length_ratio": hypothesis_words / words["all"],
+            }
+            print(f"  catastrophic {catastrophic}/{scored}  "
+                  f"punct {100 * rates['eval_punctuation_rate']:.0f}%  "
+                  f"len/ref {rates['eval_length_ratio']:.3f}")
+            if metrics is not None:
+                metrics.update(rates)
 
     def _dump(self, output_dir: str, step: int, hypotheses: list[str]) -> None:
         """Keep every transcript, so a WER change can be traced to what changed.
