@@ -17,6 +17,7 @@ from data_utils.SceneDataset import SceneDataset
 from data_utils.data_utils import audio_duration_seconds
 from data_utils.data_collator import Qwen3ASRDataCollator
 from data_utils.room_folds import FOLDS
+from training_utils.distill_trainer import DistillTrainer
 from training_utils.epoch_callback import SceneEpochCallback
 from training_utils.wer_callback import BandWERCallback
 
@@ -144,6 +145,23 @@ def build_model(
     return model
 
 
+def build_teacher(
+    model_id: str,
+    cache_dir: str,
+    model_dtype: torch.dtype,
+) -> Qwen3ASRForConditionalGeneration:
+    teacher = Qwen3ASRForConditionalGeneration.from_pretrained(
+        model_id,
+        cache_dir=cache_dir,
+        dtype=model_dtype,
+        low_cpu_mem_usage=True,
+    )
+
+    teacher.requires_grad_(False)
+    teacher.config.use_cache = False
+    return teacher.eval()
+
+
 def train(config: dict[str, Any], fold: int) -> None:
     model_config = config["model"]
     dataset_config = config["datasets"]
@@ -151,6 +169,8 @@ def train(config: dict[str, Any], fold: int) -> None:
     scene_config = config["scene"]
     validation_config = config["validation"]
     training_config = config["training"]
+    objective_config = config.get("objective", {})
+    distill = objective_config.get("distill", False)
 
     cache_dir = str(Path(path_config["cache_dir"]))
     output_dir = Path(path_config["output_root"]) / f"fold-{fold}"
@@ -187,6 +207,7 @@ def train(config: dict[str, Any], fold: int) -> None:
         sample_rate=sample_rate,
         number_of_noises=scene_config["number_of_noises"],
         clean_probability=scene_config["clean_probability"],
+        teacher=distill,
     )
     validation_dataset = SceneDataset(
         speech_ds=validation_speech_ds,
@@ -198,18 +219,19 @@ def train(config: dict[str, Any], fold: int) -> None:
         clean_probability=validation_config["clean_probability"],
     )
 
-    trainer = Trainer(
-        model=model,
-        args=TrainingArguments(output_dir=str(output_dir), **training_config),
-        train_dataset=train_dataset,
-        eval_dataset=validation_dataset,
-        data_collator=Qwen3ASRDataCollator(
+    trainer_kwargs: dict[str, Any] = {
+        "model": model,
+        "args": TrainingArguments(output_dir=str(output_dir), **training_config),
+        "train_dataset": train_dataset,
+        "eval_dataset": validation_dataset,
+        "data_collator": Qwen3ASRDataCollator(
             processor=processor,
             sample_rate=sample_rate,
             language=scene_config["language"],
+            mask_punctuation=objective_config.get("mask_punctuation", True),
         ),
-        processing_class=processor,
-        callbacks=[
+        "processing_class": processor,
+        "callbacks": [
             SceneEpochCallback(dataset=train_dataset),
             BandWERCallback(
                 dataset=validation_dataset,
@@ -227,7 +249,20 @@ def train(config: dict[str, Any], fold: int) -> None:
                 ),
             ),
         ],
-    )
+    }
+
+    if distill:
+        teacher_model = build_teacher(model_config["model_id"], cache_dir, model_dtype)
+        trainer = DistillTrainer(
+            **trainer_kwargs,
+            teacher_model=teacher_model,
+            temperature=objective_config.get("temperature", 1.0),
+            ce_weight=objective_config.get("ce_weight", 0.0),
+        )
+        # Trainer only moves its own model; the teacher has to follow.
+        teacher_model.to(trainer.args.device)
+    else:
+        trainer = Trainer(**trainer_kwargs)
 
     # Picks up an interrupted run on a rented box; None on a clean start.
     last_checkpoint = get_last_checkpoint(str(output_dir)) if output_dir.is_dir() else None

@@ -34,6 +34,12 @@ wer_examples = 768
 wer_batch_size = 16
 wer_max_new_tokens = 256
 
+[objective]
+distill = false
+temperature = 1.0
+ce_weight = 0.0
+mask_punctuation = true
+
 [training]
 per_device_train_batch_size = 16
 per_device_eval_batch_size = 16

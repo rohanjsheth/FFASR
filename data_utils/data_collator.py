@@ -8,6 +8,7 @@ import torch
 from data_utils.data_utils import RenderedScene
 
 if TYPE_CHECKING:
+    from audio_utils.audio_types import FloatArray
     from torch import Tensor
     from transformers import BatchFeature, Qwen3ASRProcessor
     from transformers.tokenization_utils_base import PreTrainedTokenizerBase
@@ -31,20 +32,30 @@ class Qwen3ASRDataCollator:
         processor: Qwen3ASRProcessor,
         sample_rate: int,
         language: str,
+        mask_punctuation: bool = True,
     ) -> None:
         self._processor = processor
         self._sample_rate = sample_rate
         self._language = language
         self._asr_text_id = processor.tokenizer.convert_tokens_to_ids("<asr_text>")
+        self._mask_punctuation = mask_punctuation
         self._punctuation_ids = punctuation_token_ids(processor.tokenizer)
 
     def __call__(self, features: list[RenderedScene]) -> BatchFeature:
         if not features:
             raise ValueError("Cannot collate an empty batch")
 
-        audios = [render["audio"] for render in features]
         texts = [render["text"] for render in features]
+        batch = self._encode([render["audio"] for render in features], texts)
 
+        if "teacher_audio" in features[0]:
+            teacher = self._encode([render["teacher_audio"] for render in features], texts)
+            for key, value in teacher.items():
+                batch[f"teacher_{key}"] = value
+
+        return batch
+
+    def _encode(self, audios: list[FloatArray], texts: list[str]) -> BatchFeature:
         conversations = [
             [
                 {
@@ -83,7 +94,8 @@ class Qwen3ASRDataCollator:
             boundary = (input_ids == self._asr_text_id).nonzero()[-1].item()
             labels[: boundary + 1] = -100
 
-        labels = batch["labels"]
-        labels[torch.isin(labels, self._punctuation_ids)] = -100
+        if self._mask_punctuation:
+            labels = batch["labels"]
+            labels[torch.isin(labels, self._punctuation_ids)] = -100
 
         return batch

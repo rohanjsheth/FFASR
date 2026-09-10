@@ -8,16 +8,18 @@ import numpy as np
 import numpy.typing as npt
 import io, soundfile as sf
 from audio_utils.audio_types import FloatArray, Speech, Noise, SceneConfig
+from audio_utils.audio_mixing import convolve
 from audio_utils.make_scene import make_scene
 
 
 RIRIndex = dict[str, dict[str, npt.NDArray[np.intp]]]
 
 
-class RenderedScene(TypedDict):
+class RenderedScene(TypedDict, total=False):
     audio: FloatArray
     text: str
     metadata: dict[str, Any]
+    teacher_audio: FloatArray
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,6 +148,7 @@ def render_scene_from_recipe(
     noise_ds: Dataset,
     rir_ds: Dataset,
     sr: int,
+    teacher: bool = False,
 ) -> RenderedScene:
     speech_rec = speech_ds[recipe.speech_index]
     speech_rir_rec = rir_ds[recipe.speech_rir_index]
@@ -192,11 +195,12 @@ def render_scene_from_recipe(
                 rng_seed=recipe.rng_seed,
             )
 
-    return {
-        "audio": scene, 
-        "text": text, 
-        "metadata": metadata 
-    }
+    rendered: RenderedScene = {"audio": scene, "text": text, "metadata": metadata}
+
+    if teacher:
+        rendered["teacher_audio"] = convolve(speech, speech_rir, speech_source.distance, sr)
+
+    return rendered
 
 def render_clean_scene(
     speech_index: int,
