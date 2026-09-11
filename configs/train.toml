@@ -35,7 +35,7 @@ wer_batch_size = 16
 wer_max_new_tokens = 256
 
 [objective]
-distill = false
+distill = true
 temperature = 1.0
 ce_weight = 0.0
 mask_punctuation = true
@@ -61,9 +61,7 @@ eval_steps = 300
 save_strategy = "steps"
 save_steps = 300
 save_total_limit = 3
-load_best_model_at_end = true
-metric_for_best_model = "eval_wer_low"
-greater_is_better = false
+load_best_model_at_end = false
 logging_steps = 10
 remove_unused_columns = false
 report_to = "none"
