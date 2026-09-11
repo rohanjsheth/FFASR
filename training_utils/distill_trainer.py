@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-from turtle import st
 from typing import TYPE_CHECKING, Any
 
 import torch
-from torch.xpu import temperature
 from transformers import Trainer
 
 if TYPE_CHECKING:
@@ -49,7 +47,8 @@ class DistillTrainer(Trainer):
 
         student_logits = model(**student_inputs).logits[:, :-1]
 
-        with torch.no_grad():
+        # accelerate autocasts only the model it prepared; the teacher is not one.
+        with torch.no_grad(), torch.autocast(self.args.device.type, dtype=torch.bfloat16):
             teacher_logits = self._teacher_model(**teacher_inputs).logits[:, :-1]
 
         mask = student_inputs["labels"][:, 1:] != -100

@@ -252,7 +252,8 @@ def train(config: dict[str, Any], fold: int) -> None:
     }
 
     if distill:
-        teacher_model = build_teacher(model_config["model_id"], cache_dir, model_dtype)
+        # Inference only, no optimizer state, so fp32 buys nothing here.
+        teacher_model = build_teacher(model_config["model_id"], cache_dir, torch.bfloat16)
         trainer = DistillTrainer(
             **trainer_kwargs,
             teacher_model=teacher_model,
