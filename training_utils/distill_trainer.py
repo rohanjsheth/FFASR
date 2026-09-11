@@ -47,19 +47,16 @@ class DistillTrainer(Trainer):
         if not teacher_inputs:
             return super().compute_loss(model, inputs, return_outputs, **kwargs)
 
-        student_logits = model(student_inputs)
+        student_logits = model(**student_inputs).logits[:, :-1]
 
-        with torch.no_grad:
-            teacher_logits = self._teacher_model(teacher_inputs)
+        with torch.no_grad():
+            teacher_logits = self._teacher_model(**teacher_inputs).logits[:, :-1]
 
-        mask =  student_inputs["labels"][:, 1:] != -100
+        mask = student_inputs["labels"][:, 1:] != -100
 
         teacher_probs = (teacher_logits / self._temperature).softmax(-1)
-        student_logp  = (student_logits / self._temperature).log_softmax(-1)
+        student_logp = (student_logits / self._temperature).log_softmax(-1)
         loss = -(teacher_probs * student_logp).sum(-1)
         loss = (loss * mask).sum() / mask.sum() * self._temperature**2
 
-
-        
-
-        raise NotImplementedError("distillation loss")
+        return loss
