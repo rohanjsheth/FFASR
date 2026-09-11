@@ -17,8 +17,8 @@ import urllib.request
 
 
 UPSTREAM_REVISION = "48219c6028db0517d704600d92f31edfc96e8c23"
-MODEL_ID = "rohansheth/tiro-qwen3-asr-1.7b-ffasr-v1"
-MODEL_REVISION = "92a967532f9b10abdb898a701dab175583a8cfdd"
+MODEL_ID = "rohansheth/tiro-qwen3-asr-1.7b-v2"
+MODEL_REVISION = "d81d6f28a554e5af8f03218b442918fc1456f31a"
 DEFAULT_DATASET = "hf-audio/open-asr-leaderboard"
 # Same eight public English splits as transformers/submit_jobs_qwen3asr.sh.
 # Order the smaller sets first so a timeout preserves useful completed results.
