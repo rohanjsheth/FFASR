@@ -17,8 +17,12 @@ import urllib.request
 
 
 UPSTREAM_REVISION = "48219c6028db0517d704600d92f31edfc96e8c23"
-MODEL_ID = "rohansheth/tiro-qwen3-asr-1.7b-v2"
-MODEL_REVISION = "d81d6f28a554e5af8f03218b442918fc1456f31a"
+# Override to score a baseline in the same image; revision "" means default branch.
+MODEL_ID = os.environ.get("OPENASR_MODEL_ID", "rohansheth/tiro-qwen3-asr-1.7b-v2")
+MODEL_REVISION = (
+    os.environ.get("OPENASR_MODEL_REVISION")
+    or "d81d6f28a554e5af8f03218b442918fc1456f31a"
+)
 DEFAULT_DATASET = "hf-audio/open-asr-leaderboard"
 # Same eight public English splits as transformers/submit_jobs_qwen3asr.sh.
 # Order the smaller sets first so a timeout preserves useful completed results.
@@ -32,6 +36,11 @@ DATASETS = [
     ("spgispeech", DEFAULT_DATASET, "spgispeech", "test"),
     ("monsoon", "VoiceArena/Monsoon_en_IN_test", "", "test"),
 ]
+
+_only = os.environ.get("OPENASR_ONLY")
+if _only:
+    _keep = {name.strip() for name in _only.split(",")}
+    DATASETS = [row for row in DATASETS if row[0] in _keep]
 
 
 def write_json(path: Path, data: object) -> None:
