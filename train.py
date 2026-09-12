@@ -228,7 +228,8 @@ def train(config: dict[str, Any], fold: int) -> None:
             processor=processor,
             sample_rate=sample_rate,
             language=scene_config["language"],
-            mask_punctuation=objective_config.get("mask_punctuation", True),
+            # Mask under CE, never under KL: the target is base's own distribution.
+            mask_punctuation=objective_config.get("mask_punctuation", not distill),
         ),
         "processing_class": processor,
         "callbacks": [

@@ -38,7 +38,8 @@ wer_max_new_tokens = 256
 distill = true
 temperature = 1.0
 ce_weight = 0.0
-mask_punctuation = true
+# Must be false under distill; defaults to `not distill` if omitted.
+mask_punctuation = false
 
 [training]
 per_device_train_batch_size = 16
