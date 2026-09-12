@@ -16,6 +16,7 @@ from pathlib import Path
 
 import soundfile as sf
 import torch
+from scipy.signal import resample_poly
 from transformers import AutoProcessor, Qwen3ASRForConditionalGeneration
 
 from eval_utils.text_norm import edit_distance, normalize_for_wer
@@ -67,8 +68,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             scenes = []
             for row in batch:
                 audio, rate = sf.read(by_name[Path(row["audio_path"]).name], dtype="float32")
+                # NOIZEUS ships at 8 kHz; the processor wants 16 kHz.
                 if rate != args.sample_rate:
-                    raise SystemExit(f"{row['index']} is {rate} Hz, expected {args.sample_rate}")
+                    audio = resample_poly(audio, args.sample_rate, rate).astype("float32")
                 scenes.append({"audio": audio})
 
             results = transcribe_with_scores(
