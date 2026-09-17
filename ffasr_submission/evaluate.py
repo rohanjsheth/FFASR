@@ -23,7 +23,7 @@ MODEL_ID = "rohansheth/tiro-qwen3-asr-1.7b-v2"
 REVISION = "d81d6f28a554e5af8f03218b442918fc1456f31a"
 SAMPLE_RATE = 16_000
 LANGUAGE = "English"
-MAX_NEW_TOKENS = 256
+MAX_NEW_TOKENS = 512
 
 processor = AutoProcessor.from_pretrained(MODEL_ID, revision=REVISION)
 model = Qwen3ASRForConditionalGeneration.from_pretrained(
